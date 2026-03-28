@@ -1,4 +1,4 @@
-# Implementation Spec: treesum - Phase 2 (Compare Command)
+# Implementation Spec: sumpig - Phase 2 (Compare Command)
 
 **Contract**: ./contract.md
 **Estimated Effort**: M

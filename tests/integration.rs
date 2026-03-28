@@ -3,8 +3,8 @@ use predicates::prelude::*;
 use std::fs;
 use tempfile::TempDir;
 
-fn treesum() -> Command {
-    Command::cargo_bin("treesum").unwrap()
+fn sumpig() -> Command {
+    Command::cargo_bin("sumpig").unwrap()
 }
 
 /// Create a small test tree inside a "tree" subdirectory:
@@ -52,7 +52,7 @@ fn fingerprint_produces_valid_manifest() {
     let tree = create_test_tree(&dir);
     let output_file = dir.path().join("manifest.txt");
 
-    treesum()
+    sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
@@ -63,7 +63,7 @@ fn fingerprint_produces_valid_manifest() {
         .success();
 
     let manifest = fs::read_to_string(&output_file).unwrap();
-    assert!(manifest.starts_with("# treesum fingerprint\n"));
+    assert!(manifest.starts_with("# sumpig fingerprint\n"));
     assert!(manifest.contains("# version: 1\n"));
     assert!(manifest.contains("# host: "));
     assert!(manifest.contains("# depth: 6\n"));
@@ -76,7 +76,7 @@ fn fingerprint_has_correct_entries() {
     let tree = create_test_tree(&dir);
     let output_file = dir.path().join("manifest.txt");
 
-    treesum()
+    sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
@@ -104,7 +104,7 @@ fn fingerprint_deterministic() {
     let out1 = dir.path().join("run1.txt");
     let out2 = dir.path().join("run2.txt");
 
-    treesum()
+    sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
@@ -113,7 +113,7 @@ fn fingerprint_deterministic() {
         ])
         .assert()
         .success();
-    treesum()
+    sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
@@ -137,7 +137,7 @@ fn modify_file_changes_root_hash() {
     let out1 = dir.path().join("before.txt");
     let out2 = dir.path().join("after.txt");
 
-    treesum()
+    sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
@@ -150,7 +150,7 @@ fn modify_file_changes_root_hash() {
     // Modify one file.
     fs::write(tree.join("file_a.txt"), "modified").unwrap();
 
-    treesum()
+    sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
@@ -173,7 +173,7 @@ fn depth_one_fewer_entries_same_root() {
     let out_deep = dir.path().join("deep.txt");
     let out_shallow = dir.path().join("shallow.txt");
 
-    treesum()
+    sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
@@ -184,7 +184,7 @@ fn depth_one_fewer_entries_same_root() {
         ])
         .assert()
         .success();
-    treesum()
+    sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
@@ -218,7 +218,7 @@ fn output_flag_writes_to_specified_path() {
     let custom_output = dir.path().join("custom/output/manifest.txt");
     fs::create_dir_all(custom_output.parent().unwrap()).unwrap();
 
-    treesum()
+    sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
@@ -236,7 +236,7 @@ fn default_output_goes_to_sync_fingerprints() {
     let dir = TempDir::new().unwrap();
     let tree = create_test_tree(&dir);
 
-    treesum()
+    sumpig()
         .args(["fingerprint", &tree.to_string_lossy()])
         .assert()
         .success();
@@ -262,7 +262,7 @@ fn no_skip_includes_node_modules() {
     let out_skip = dir.path().join("with_skip.txt");
     let out_noskip = dir.path().join("no_skip.txt");
 
-    treesum()
+    sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
@@ -271,7 +271,7 @@ fn no_skip_includes_node_modules() {
         ])
         .assert()
         .success();
-    treesum()
+    sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
@@ -296,7 +296,7 @@ fn jobs_one_same_output_as_default() {
     let out_default = dir.path().join("default.txt");
     let out_single = dir.path().join("single.txt");
 
-    treesum()
+    sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
@@ -305,7 +305,7 @@ fn jobs_one_same_output_as_default() {
         ])
         .assert()
         .success();
-    treesum()
+    sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
@@ -329,7 +329,7 @@ fn summary_goes_to_stderr() {
     let tree = create_test_tree(&dir);
     let output_file = dir.path().join("manifest.txt");
 
-    let assert = treesum()
+    let assert = sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
@@ -347,7 +347,7 @@ fn summary_goes_to_stderr() {
 
 #[test]
 fn nonexistent_path_exits_with_error() {
-    treesum()
+    sumpig()
         .args(["fingerprint", "/nonexistent/path/that/does/not/exist"])
         .assert()
         .failure()
@@ -361,7 +361,7 @@ fn fingerprint_empty_directory() {
     fs::create_dir(&tree).unwrap();
     let output_file = dir.path().join("manifest.txt");
 
-    treesum()
+    sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),

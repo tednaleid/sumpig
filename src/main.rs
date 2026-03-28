@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
-    name = "treesum",
+    name = "sumpig",
     about = "Merkle tree directory fingerprinting and comparison"
 )]
 struct Cli {
@@ -77,19 +77,19 @@ fn run_fingerprint(
     }
 
     // Walk the directory tree.
-    let walk_options = treesum::walk::WalkOptions {
+    let walk_options = sumpig::walk::WalkOptions {
         skip_defaults: !no_skip,
         num_threads: jobs.unwrap_or(0),
     };
-    let walk_entries = treesum::walk::walk_directory(&canonical, &walk_options);
+    let walk_entries = sumpig::walk::walk_directory(&canonical, &walk_options);
 
     // Hash files in parallel, collect (relative_path, FileHash) pairs.
-    let hashed_entries: Vec<(PathBuf, treesum::hash::FileHash)> = walk_entries
+    let hashed_entries: Vec<(PathBuf, sumpig::hash::FileHash)> = walk_entries
         .into_iter()
         .filter(|e| !e.is_dir)
         .map(|e| {
             let full_path = canonical.join(&e.path);
-            let file_hash = treesum::hash::hash_file(&full_path);
+            let file_hash = sumpig::hash::hash_file(&full_path);
             (e.path, file_hash)
         })
         .collect();
@@ -102,22 +102,22 @@ fn run_fingerprint(
     sorted_entries.sort_by(|a, b| a.0.cmp(&b.0));
 
     // Compute Merkle tree and produce flat entries.
-    let (flat_entries, root_hash) = treesum::merkle::compute_manifest(&sorted_entries, depth);
+    let (flat_entries, root_hash) = sumpig::merkle::compute_manifest(&sorted_entries, depth);
 
     let total_dirs = flat_entries
         .iter()
-        .filter(|e| e.entry_type == treesum::merkle::EntryType::Dir)
+        .filter(|e| e.entry_type == sumpig::merkle::EntryType::Dir)
         .count();
 
     // Build the manifest header.
-    let header = treesum::manifest::ManifestHeader {
-        host: treesum::manifest::get_hostname(),
+    let header = sumpig::manifest::ManifestHeader {
+        host: sumpig::manifest::get_hostname(),
         path: canonical.to_string_lossy().into_owned(),
         depth,
-        date: treesum::manifest::get_iso_date(),
+        date: sumpig::manifest::get_iso_date(),
         total_files,
         total_dirs,
-        root_hash: treesum::hash::hash_to_hex(&root_hash),
+        root_hash: sumpig::hash::hash_to_hex(&root_hash),
     };
 
     // Determine output path.
@@ -126,14 +126,14 @@ fn run_fingerprint(
         None => {
             let sync_dir = canonical.join(".sync-fingerprints");
             fs::create_dir_all(&sync_dir)?;
-            let hostname = treesum::manifest::get_hostname();
+            let hostname = sumpig::manifest::get_hostname();
             sync_dir.join(format!("{hostname}.txt"))
         }
     };
 
     // Write the manifest.
     let mut file = fs::File::create(&output_path)?;
-    treesum::manifest::write_manifest(&mut file, &header, &flat_entries)?;
+    sumpig::manifest::write_manifest(&mut file, &header, &flat_entries)?;
 
     // Print summary to stderr.
     let elapsed = start.elapsed();
@@ -142,7 +142,7 @@ fn run_fingerprint(
         total_files,
         total_dirs,
         elapsed.as_secs_f64(),
-        treesum::hash::hash_to_hex(&root_hash),
+        sumpig::hash::hash_to_hex(&root_hash),
         output_path.display(),
     );
 

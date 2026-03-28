@@ -1,8 +1,8 @@
-# treesum -- Merkle tree directory fingerprinting and comparison
+# sumpig -- Merkle tree directory fingerprinting and comparison
 
 ## What this tool does
 
-`treesum` generates a fingerprint file for a directory tree that captures the content of every
+`sumpig` generates a fingerprint file for a directory tree that captures the content of every
 file as a Merkle tree of BLAKE3 hashes. Run it on two machines (or two copies of the same
 directory), then compare the fingerprint files to verify they are identical or find exactly
 what differs.
@@ -14,8 +14,8 @@ scenario where two directory trees should be identical.
 ## Usage
 
 ```
-treesum fingerprint <path> [--depth N] [--output FILE] [--jobs N]
-treesum compare <file1> <file2>
+sumpig fingerprint <path> [--depth N] [--output FILE] [--jobs N]
+sumpig compare <file1> <file2>
 ```
 
 ### fingerprint
@@ -90,7 +90,7 @@ A Merkle tree is a hash tree where each node's hash covers all of its descendant
 any file anywhere in the tree causes hash changes to propagate all the way up to the root.
 Git uses this exact structure -- tree objects are Merkle hashes of their contents.
 
-### How treesum builds the tree
+### How sumpig builds the tree
 
 Bottom-up construction:
 
@@ -118,7 +118,7 @@ of 1 million.
 Flat text, one line per entry, sorted by path. Diffable with standard `diff`.
 
 ```
-# treesum fingerprint
+# sumpig fingerprint
 # version: 1
 # host: cardinal
 # path: /Users/tednaleid/Documents
@@ -158,7 +158,7 @@ Directories are identifiable by their trailing `/`.
 - `build`, `dist` -- build output
 - `.Trash` -- macOS trash
 - `*.nosync` -- explicitly excluded from iCloud sync
-- `.sync-fingerprints` -- treesum's own output directory
+- `.sync-fingerprints` -- sumpig's own output directory
 
 ### Files to skip
 
@@ -176,7 +176,7 @@ On macOS Tahoe, iCloud can evict files to save disk space. These "dataless" file
 `SF_DATALESS` flag (0x40000000) set in stat flags. Their data fork is empty/not present
 locally.
 
-When treesum encounters a dataless file:
+When sumpig encounters a dataless file:
 - Record it as `dataless:<file_size>` instead of `blake3:<hash>`
 - The compare command should flag dataless entries as warnings since the content cannot be
   verified
@@ -210,7 +210,7 @@ modules (a workspace is overkill for this scope).
 ### Module structure
 
 ```
-treesum/
+sumpig/
   Cargo.toml
   src/
     main.rs          # CLI entry point, clap subcommand routing
@@ -381,7 +381,7 @@ with statistical analysis and regression detection between runs.
 
 ## Compare output format
 
-When `treesum compare file1.txt file2.txt` finds differences:
+When `sumpig compare file1.txt file2.txt` finds differences:
 
 ```
 Root hashes differ.
@@ -408,8 +408,8 @@ Summary: 2 files differ, 1 directory only in cardinal, 0 only in macstudio
 ## Project setup
 
 ```bash
-cargo init treesum
-cd treesum
+cargo init sumpig
+cd sumpig
 cargo add blake3 --features rayon
 cargo add jwalk
 cargo add rayon
@@ -435,17 +435,17 @@ harness = false
 ## Deliverables
 
 When implementing, the plan file also asks for:
-- `docs/merkle-tree-primer.md` in the treesum project -- explains Merkle trees, how
-  treesum uses them, and why they make comparison efficient. Written for someone who
+- `docs/merkle-tree-primer.md` in the sumpig project -- explains Merkle trees, how
+  sumpig uses them, and why they make comparison efficient. Written for someone who
   hasn't encountered the concept before.
 
 ## Verification
 
-1. `treesum fingerprint .` on the treesum project itself -- verify output format
+1. `sumpig fingerprint .` on the sumpig project itself -- verify output format
 2. Run twice on same directory -- output should be byte-identical
 3. Modify one file, re-run -- root hash changes, file entry changes
-4. `treesum compare` on two identical manifests -- reports identical, exit 0
-5. `treesum compare` on two different manifests -- reports exact differences, exit 1
+4. `sumpig compare` on two identical manifests -- reports identical, exit 0
+5. `sumpig compare` on two different manifests -- reports exact differences, exit 1
 6. Test with `--depth 1` vs `--depth 6` -- same root hash, different granularity
 7. `cargo bench` -- all benchmarks run, establish baseline
 8. Large-scale: run on a real directory with thousands of files, verify it completes fast

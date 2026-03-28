@@ -26,7 +26,7 @@ pub fn write_manifest<W: io::Write>(
     header: &ManifestHeader,
     entries: &[FlatEntry],
 ) -> io::Result<()> {
-    writeln!(writer, "# treesum fingerprint")?;
+    writeln!(writer, "# sumpig fingerprint")?;
     writeln!(writer, "# version: 1")?;
     writeln!(writer, "# host: {}", header.host)?;
     writeln!(writer, "# path: {}", header.path)?;
@@ -97,7 +97,7 @@ pub fn parse_manifest<R: io::BufRead>(
                     _ => {} // Unknown header fields are ignored.
                 }
             }
-            // Lines like "# treesum fingerprint" (no ": ") are silently skipped.
+            // Lines like "# sumpig fingerprint" (no ": ") are silently skipped.
             continue;
         }
 
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn parse_blake3_entry() {
-        let manifest = "# treesum fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 1\n# total_dirs: 0\n# root: abc123\nblake3:deadbeefdeadbeefdeadbeefdeadbeef  ./file.txt\n";
+        let manifest = "# sumpig fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 1\n# total_dirs: 0\n# root: abc123\nblake3:deadbeefdeadbeefdeadbeefdeadbeef  ./file.txt\n";
 
         let (_, entries) = parse_manifest(io::BufReader::new(manifest.as_bytes())).unwrap();
         assert_eq!(entries.len(), 1);
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn parse_dataless_entry() {
-        let manifest = "# treesum fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 1\n# total_dirs: 0\n# root: abc123\ndataless:12345  ./evicted.dat\n";
+        let manifest = "# sumpig fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 1\n# total_dirs: 0\n# root: abc123\ndataless:12345  ./evicted.dat\n";
 
         let (_, entries) = parse_manifest(io::BufReader::new(manifest.as_bytes())).unwrap();
         assert_eq!(entries[0].entry_type, "dataless");
@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn parse_error_entry() {
-        let manifest = "# treesum fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 1\n# total_dirs: 0\n# root: abc123\nerror:permission denied  ./locked.db\n";
+        let manifest = "# sumpig fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 1\n# total_dirs: 0\n# root: abc123\nerror:permission denied  ./locked.db\n";
 
         let (_, entries) = parse_manifest(io::BufReader::new(manifest.as_bytes())).unwrap();
         assert_eq!(entries[0].entry_type, "error");
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn parse_symlink_entry() {
-        let manifest = "# treesum fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 1\n# total_dirs: 0\n# root: abc123\nsymlink:/target/path  ./link\n";
+        let manifest = "# sumpig fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 1\n# total_dirs: 0\n# root: abc123\nsymlink:/target/path  ./link\n";
 
         let (_, entries) = parse_manifest(io::BufReader::new(manifest.as_bytes())).unwrap();
         assert_eq!(entries[0].entry_type, "symlink");
@@ -293,7 +293,7 @@ mod tests {
 
     #[test]
     fn parse_rejects_malformed_data_line() {
-        let manifest = "# treesum fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 0\n# total_dirs: 0\n# root: abc\nthis is not valid\n";
+        let manifest = "# sumpig fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 0\n# total_dirs: 0\n# root: abc\nthis is not valid\n";
 
         let result = parse_manifest(io::BufReader::new(manifest.as_bytes()));
         assert!(result.is_err());
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn parse_ignores_unknown_header_fields() {
-        let manifest = "# treesum fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 0\n# total_dirs: 0\n# root: abc\n# unknown_field: whatever\n";
+        let manifest = "# sumpig fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 0\n# total_dirs: 0\n# root: abc\n# unknown_field: whatever\n";
 
         let result = parse_manifest(io::BufReader::new(manifest.as_bytes()));
         assert!(result.is_ok());
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn parse_empty_manifest_header_only() {
-        let manifest = "# treesum fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 0\n# total_dirs: 0\n# root: abc\n";
+        let manifest = "# sumpig fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 0\n# total_dirs: 0\n# root: abc\n";
 
         let (header, entries) = parse_manifest(io::BufReader::new(manifest.as_bytes())).unwrap();
         assert_eq!(header.host, "h");
@@ -326,7 +326,7 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
 
         // Should start with header comments.
-        assert!(output.starts_with("# treesum fingerprint\n"));
+        assert!(output.starts_with("# sumpig fingerprint\n"));
         assert!(output.contains("# host: testhost\n"));
         assert!(output.contains("# depth: 6\n"));
 

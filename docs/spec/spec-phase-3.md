@@ -1,4 +1,4 @@
-# Implementation Spec: treesum - Phase 3 (Benchmarks)
+# Implementation Spec: sumpig - Phase 3 (Benchmarks)
 
 **Contract**: ./contract.md
 **Estimated Effort**: S
@@ -65,7 +65,7 @@ harness = false
 use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
 use tempfile::NamedTempFile;
 use std::io::Write;
-use treesum::hash;
+use sumpig::hash;
 
 fn bench_hash_file(c: &mut Criterion) {
     let sizes: &[(& str, usize)] = &[
@@ -112,7 +112,7 @@ criterion_main!(benches);
 ```rust
 use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
 use tempfile::TempDir;
-use treesum::walk::{self, WalkOptions};
+use sumpig::walk::{self, WalkOptions};
 
 fn bench_walk(c: &mut Criterion) {
     let sizes: &[(&str, usize, usize)] = &[
@@ -173,8 +173,8 @@ criterion_main!(benches);
 
 ```rust
 use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
-use treesum::hash::FileHash;
-use treesum::merkle;
+use sumpig::hash::FileHash;
+use sumpig::merkle;
 use std::path::PathBuf;
 
 fn bench_compute_manifest(c: &mut Criterion) {

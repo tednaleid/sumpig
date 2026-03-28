@@ -1,4 +1,4 @@
-# treesum Contract
+# sumpig Contract
 
 **Created**: 2026-03-28
 **Confidence Score**: 95/100
@@ -13,7 +13,7 @@ The cost of undetected sync failures is high: working on corrupted repos, losing
 
 ## Goals
 
-1. **Definitive verification**: if treesum says two trees match, they match. No silent skips, no ambiguity, no "probably fine." Every file is either hashed, recorded as dataless, or recorded as an error.
+1. **Definitive verification**: if sumpig says two trees match, they match. No silent skips, no ambiguity, no "probably fine." Every file is either hashed, recorded as dataless, or recorded as an error.
 2. **Pinpoint differences**: when trees differ, report exactly which files and directories differ, with enough structure (Merkle tree) to drill down efficiently.
 3. **Fast enough to run habitually**: targeting ripgrep-class performance. Fingerprinting a 40K-file directory tree should take seconds, not minutes. Performance benchmarks with regression detection ensure it stays fast.
 4. **Fully tested with fast feedback**: every module has red/green unit tests. Integration tests exercise the CLI end-to-end. All tests run in seconds, not minutes.
@@ -21,10 +21,10 @@ The cost of undetected sync failures is high: working on corrupted repos, losing
 
 ## Success Criteria
 
-- [ ] `treesum fingerprint <path>` recursively hashes all files and produces a deterministic manifest
+- [ ] `sumpig fingerprint <path>` recursively hashes all files and produces a deterministic manifest
 - [ ] Running fingerprint twice on an unchanged directory produces byte-identical output
 - [ ] Modifying one file changes the root hash and the relevant path of directory hashes
-- [ ] `treesum compare <file1> <file2>` reports identical trees (exit 0) or exact differences (exit 1)
+- [ ] `sumpig compare <file1> <file2>` reports identical trees (exit 0) or exact differences (exit 1)
 - [ ] Compare uses Merkle property to skip matching subtrees (verifiable by output structure)
 - [ ] Dataless files (iCloud-evicted, SF_DATALESS flag) recorded as `dataless:<size>` entries
 - [ ] Unreadable files (permission denied, I/O error) recorded as `error:<reason>` entries
@@ -68,9 +68,9 @@ The cost of undetected sync failures is high: working on corrupted repos, losing
 
 - GitHub Actions CI pipeline (test, lint, bench on PR)
 - `just bump` and `just retag` recipes for release tagging
-- `treesum watch` mode for continuous monitoring
+- `sumpig watch` mode for continuous monitoring
 - Custom skip list via config file or `--skip` flag
-- `treesum compare --dir` to auto-detect fingerprint files in a directory
+- `sumpig compare --dir` to auto-detect fingerprint files in a directory
 - Homebrew formula for distribution
 - Shell completions (bash, zsh, fish)
 

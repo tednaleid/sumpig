@@ -1,4 +1,4 @@
-# treesum
+# sumpig
 
 Merkle tree directory fingerprinting and comparison tool. Verifies that two directory trees
 are identical by computing and comparing BLAKE3 hash trees.
@@ -46,5 +46,5 @@ just fmt      # format code
 
 ## Reference
 
-- Full design rationale: `docs/spec/treesum-spec.md`
+- Full design rationale: `docs/spec/sumpig-spec.md`
 - Contract and phase specs: `docs/spec/`

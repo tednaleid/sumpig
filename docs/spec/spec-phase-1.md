@@ -1,4 +1,4 @@
-# Implementation Spec: treesum - Phase 1 (Core Library + Fingerprint Command)
+# Implementation Spec: sumpig - Phase 1 (Core Library + Fingerprint Command)
 
 **Contract**: ./contract.md
 **Estimated Effort**: L
@@ -48,7 +48,7 @@ TDD throughout: write tests alongside each module. Unit tests use in-module `#[c
 
 ```toml
 [package]
-name = "treesum"
+name = "sumpig"
 version = "0.1.0"
 edition = "2024"
 
@@ -117,7 +117,7 @@ run-compare FILE1 FILE2:
 - Test everything: unit tests in every module, integration tests for CLI, all tests run in seconds.
 - Module boundaries: hash.rs, walk.rs, merkle.rs, manifest.rs, compare.rs each own their types and logic.
 - All commands through `just`: test, lint, check, build, bench, fmt. Never invoke cargo directly in documentation or workflow.
-- Reference spec: `docs/spec/treesum-spec.md` has the full design rationale.
+- Reference spec: `docs/spec/sumpig-spec.md` has the full design rationale.
 
 **Implementation steps**:
 
@@ -457,7 +457,7 @@ pub fn parse_manifest<R: BufRead>(reader: R) -> Result<(ManifestHeader, Vec<Mani
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "treesum", about = "Merkle tree directory fingerprinting and comparison")]
+#[command(name = "sumpig", about = "Merkle tree directory fingerprinting and comparison")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
