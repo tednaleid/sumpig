@@ -1,24 +1,23 @@
 # Performance Notes
 
-## Fast mode (--fast)
+## Default mode (metadata fingerprinting)
 
-The `--fast` flag hashes file metadata (size + modification time) instead of reading file
-contents. This skips all file I/O beyond stat calls, which is dramatically faster:
+By default, sumpig hashes file metadata (size + modification time) instead of reading file
+contents. This skips all file I/O beyond stat calls, which is fast enough for routine use:
 
 | Mode | Wall clock | User CPU | System CPU |
 |------|-----------|----------|-----------|
-| `--fast` (metadata) | 5.3s | 0.9s | 18.9s |
-| content (default) | 28.1s | 65.1s | 41.0s |
+| default (metadata) | 5.3s | 0.9s | 18.9s |
+| `--verify-contents` | 28.1s | 65.1s | 41.0s |
 
-5.3x faster on a ~40K file directory tree. The Merkle tree structure is identical -- only
-the leaf hashes differ (metadata hash vs content hash). The manifest header records the
-mode (`# mode: fast` vs `# mode: content`) and compare warns if modes differ.
+~5x faster on a ~40K file directory tree. The Merkle tree structure is identical in both
+modes -- only the leaf hashes differ (metadata hash vs content hash). The manifest header
+records the mode (`# mode: fast` vs `# mode: content`) and compare warns if modes differ.
 
-Fast mode is suitable for quick iCloud sync verification where you want to detect file
-additions, deletions, and size/timestamp changes without reading every file. It cannot
+Metadata mode detects file additions, deletions, and size/timestamp changes. It cannot
 detect corruption that preserves file size and modification time.
 
-## Content mode (default approach)
+## Content verification (--verify-contents / -C)
 
 sumpig uses two levels of parallelism:
 
@@ -53,7 +52,7 @@ Aggregate parallel throughput (par_iter over many files, criterion benchmarks):
 | 10 x 10MB files    | ~13 GiB/s  |
 | 10000 x 100KB files | ~8.8 GiB/s |
 
-Real-world benchmark on a ~40K file directory tree: ~30 seconds wall-clock time.
+Real-world content verification on a ~40K file directory tree: ~28 seconds wall-clock time.
 
 ## Benchmarking methodology
 
@@ -161,5 +160,7 @@ performance cost.
 
 **Lesson**: For directory fingerprinting workloads on SSD, the hash function is not the
 bottleneck. I/O (file open, read, close) dominates. Optimizing hash throughput yields
-CPU savings but not wall-clock savings. Future performance work should focus on reducing
-I/O operations (e.g., metadata-only mode, caching) rather than faster hashing.
+CPU savings but not wall-clock savings. This finding informed the decision to make
+metadata fingerprinting the default mode -- it eliminates file reads entirely, achieving
+a 5x speedup. Future performance work should focus on hash caching to bring content
+verification closer to metadata-mode speed on repeated runs.
