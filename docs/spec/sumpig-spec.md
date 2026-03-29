@@ -62,11 +62,11 @@ docs/
       helpers.rs
 ```
 
-With `--depth 1`, the manifest contains:
+With `--depth 1`, the manifest contains (tab-separated):
 ```
-blake3:abc123  ./
-blake3:def456  ./docs/            # hash covers readme.md + src/ + utils/ + helpers.rs
-blake3:789abc  ./other_dir/
+blake3:abc123	./
+blake3:def456	./docs/            # hash covers readme.md + src/ + utils/ + helpers.rs
+blake3:789abc	./other_dir/
 ```
 
 The `docs/` hash (def456) is the Merkle hash of everything inside it. If that hash matches
@@ -74,12 +74,12 @@ on both machines, everything inside docs/ is identical -- no need to check furth
 
 With `--depth 3`, the same tree shows more detail:
 ```
-blake3:abc123  ./
-blake3:def456  ./docs/
-blake3:aaa111  ./docs/readme.md
-blake3:bbb222  ./docs/src/
-blake3:ccc333  ./docs/src/main.rs
-blake3:ddd444  ./docs/src/utils/  # hash covers helpers.rs
+blake3:abc123	./
+blake3:def456	./docs/
+blake3:aaa111	./docs/readme.md
+blake3:bbb222	./docs/src/
+blake3:ccc333	./docs/src/main.rs
+blake3:ddd444	./docs/src/utils/  # hash covers helpers.rs
 ```
 
 ## Merkle tree construction
@@ -116,23 +116,24 @@ of 1 million.
 ## Output format
 
 Flat text, one line per entry, sorted by path. Diffable with standard `diff`.
+Each data line uses a tab character between the type:value and the path.
 
 ```
 # sumpig fingerprint
-# version: 1
+# version: 2
 # host: cardinal
 # path: /Users/tednaleid/Documents
 # depth: 6
-# date: 2026-03-28T15:30:00
+# date: 2026-03-28T15:30:00Z
 # total_files: 41816
 # total_dirs: 3200
 # root: a1b2c3d4e5f67890a1b2c3d4e5f67890
-blake3:a1b2c3d4e5f67890a1b2c3d4e5f67890  ./
-blake3:f6e5d4c3b2a1f6e5f6e5d4c3b2a1f6e5  ./archives/
-blake3:1a2b3c4d5e6f1a2b1a2b3c4d5e6f1a2b  ./archives/workspace/
-blake3:6f5e4d3c2b1a6f5e6f5e4d3c2b1a6f5e  ./archives/workspace/file.txt
-blake3:deadbeefdeadbeefdeadbeefdeadbeef  ./photos/
-blake3:cafebabecafebabecafebabecafebabe  ./photos/vacation.jpg
+blake3:a1b2c3d4e5f67890a1b2c3d4e5f67890	./
+blake3:f6e5d4c3b2a1f6e5f6e5d4c3b2a1f6e5	./archives/
+blake3:1a2b3c4d5e6f1a2b1a2b3c4d5e6f1a2b	./archives/workspace/
+blake3:6f5e4d3c2b1a6f5e6f5e4d3c2b1a6f5e	./archives/workspace/file.txt
+blake3:deadbeefdeadbeefdeadbeefdeadbeef	./photos/
+blake3:cafebabecafebabecafebabecafebabe	./photos/vacation.jpg
 ```
 
 Hashes are truncated to 32 hex characters (128 bits) in the manifest for readability. This is
@@ -144,8 +145,8 @@ Directories are identifiable by their trailing `/`.
 
 - `diff file1.txt file2.txt` works immediately with no tooling
 - Streaming output -- no need to buffer the entire tree in memory
-- Simple to parse (split on two spaces)
-- Same convention as sha256sum, b3sum, md5sum
+- Simple to parse (split on tab)
+- Similar convention to sha256sum, b3sum, md5sum
 
 ## What to ignore
 

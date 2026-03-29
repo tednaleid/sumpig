@@ -7,7 +7,7 @@ description = "Merkle tree directory fingerprinting and comparison"
 repository = "https://github.com/tednaleid/sumpig"
 
 [dependencies]
-blake3 = { version = "1", features = ["rayon"] }
+blake3 = "1"
 clap = { version = "4", features = ["derive"] }
 indicatif = "0.17"
 jwalk = "0.8"

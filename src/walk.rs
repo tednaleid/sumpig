@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 pub struct WalkOptions {
     /// If true, apply the default ignore list. If false (--no-ignore), hash everything.
@@ -12,6 +13,21 @@ pub struct WalkEntry {
     pub path: PathBuf,
     pub is_dir: bool,
     pub is_symlink: bool,
+}
+
+/// An error encountered during directory walking.
+#[derive(Clone)]
+pub struct WalkError {
+    /// Path relative to the walk root (if known).
+    pub path: PathBuf,
+    /// Human-readable error description.
+    pub reason: String,
+}
+
+/// Result of walking a directory tree.
+pub struct WalkResult {
+    pub entries: Vec<WalkEntry>,
+    pub errors: Vec<WalkError>,
 }
 
 /// Directories to ignore (not hashed, not listed).
@@ -33,10 +49,13 @@ pub const IGNORE_FILES: &[&str] = &[".DS_Store", ".localized"];
 /// File extensions to ignore.
 pub const IGNORE_EXTENSIONS: &[&str] = &["nosync"];
 
-/// Walk a directory tree, returning sorted entries.
+/// Walk a directory tree, returning sorted entries and any errors encountered.
 /// Applies default ignore list unless options.use_default_ignores is false.
-pub fn walk_directory(root: &Path, options: &WalkOptions) -> Vec<WalkEntry> {
+pub fn walk_directory(root: &Path, options: &WalkOptions) -> WalkResult {
     let ignore = options.use_default_ignores;
+    let root_buf = root.to_path_buf();
+    let callback_errors: Arc<Mutex<Vec<WalkError>>> = Arc::new(Mutex::new(Vec::new()));
+    let callback_errors_ref = Arc::clone(&callback_errors);
 
     let parallelism = if options.num_threads == 1 {
         jwalk::Parallelism::Serial
@@ -53,65 +72,116 @@ pub fn walk_directory(root: &Path, options: &WalkOptions) -> Vec<WalkEntry> {
         .skip_hidden(false)
         .follow_links(false)
         .process_read_dir(move |_depth, _path, _state, children| {
-            if ignore {
-                children.retain(|entry_result| {
-                    let Ok(entry) = entry_result else {
-                        return false;
-                    };
-                    let name = entry.file_name().to_string_lossy();
+            // Capture errors from directory reading before any filtering.
+            let root = &root_buf;
+            let mut errs = callback_errors_ref.lock().unwrap();
+            children.retain(|entry_result| {
+                let Ok(entry) = entry_result else {
+                    // Extract error info before dropping.
+                    let err = entry_result.as_ref().unwrap_err();
+                    if let Some(abs_path) = err.path() {
+                        let rel = abs_path
+                            .strip_prefix(root)
+                            .unwrap_or(abs_path)
+                            .to_path_buf();
+                        errs.push(WalkError {
+                            path: rel,
+                            reason: err.to_string(),
+                        });
+                    }
+                    return false;
+                };
 
-                    let ft = entry.file_type();
+                if !ignore {
+                    return true;
+                }
 
-                    // Ignore directories by name.
-                    if ft.is_dir() && IGNORE_DIRS.contains(&name.as_ref()) {
+                let name = entry.file_name().to_string_lossy();
+                let ft = entry.file_type();
+
+                // Ignore directories by name.
+                if ft.is_dir() && IGNORE_DIRS.contains(&name.as_ref()) {
+                    return false;
+                }
+
+                // Ignore files by name or extension.
+                if ft.is_file() {
+                    if IGNORE_FILES.contains(&name.as_ref()) {
                         return false;
                     }
-
-                    // Ignore files by name or extension.
-                    if ft.is_file() {
-                        if IGNORE_FILES.contains(&name.as_ref()) {
-                            return false;
-                        }
-                        if let Some(ext) = Path::new(name.as_ref()).extension()
-                            && IGNORE_EXTENSIONS.contains(&ext.to_string_lossy().as_ref())
-                        {
-                            return false;
-                        }
+                    if let Some(ext) = Path::new(name.as_ref()).extension()
+                        && IGNORE_EXTENSIONS.contains(&ext.to_string_lossy().as_ref())
+                    {
+                        return false;
                     }
+                }
 
-                    true
-                });
-            }
+                true
+            });
         });
 
     let mut entries: Vec<WalkEntry> = Vec::new();
+    let mut loop_errors: Vec<WalkError> = Vec::new();
 
     for entry in walker {
-        let Ok(entry) = entry else { continue };
-        let path = entry.path();
+        match entry {
+            Err(err) => {
+                if let Some(abs_path) = err.path() {
+                    let rel = abs_path
+                        .strip_prefix(root)
+                        .unwrap_or(abs_path)
+                        .to_path_buf();
+                    loop_errors.push(WalkError {
+                        path: rel,
+                        reason: err.to_string(),
+                    });
+                }
+            }
+            Ok(entry) => {
+                let path = entry.path();
 
-        // Skip the root directory itself.
-        if path == root {
-            continue;
+                // Skip the root directory itself.
+                if path == root {
+                    continue;
+                }
+
+                let Ok(relative) = path.strip_prefix(root) else {
+                    continue;
+                };
+
+                // Check for readdir errors (e.g., permission denied reading
+                // a directory's contents). jwalk stores these on the DirEntry
+                // rather than yielding them as Err values.
+                if let Some(ref err) = entry.read_children_error {
+                    loop_errors.push(WalkError {
+                        path: relative.to_path_buf(),
+                        reason: err.to_string(),
+                    });
+                }
+
+                let file_type = entry.file_type;
+                let is_symlink = file_type.is_symlink();
+                let is_dir = file_type.is_dir();
+
+                entries.push(WalkEntry {
+                    path: relative.to_path_buf(),
+                    is_dir,
+                    is_symlink,
+                });
+            }
         }
-
-        let Ok(relative) = path.strip_prefix(root) else {
-            continue;
-        };
-
-        let file_type = entry.file_type;
-        let is_symlink = file_type.is_symlink();
-        let is_dir = file_type.is_dir();
-
-        entries.push(WalkEntry {
-            path: relative.to_path_buf(),
-            is_dir,
-            is_symlink,
-        });
     }
 
     entries.sort_by(|a, b| a.path.cmp(&b.path));
-    entries
+
+    // Merge errors from callback and main loop.
+    let mut errors = Arc::try_unwrap(callback_errors)
+        .map(|mutex| mutex.into_inner().unwrap())
+        .unwrap_or_else(|arc| arc.lock().unwrap().clone());
+    errors.append(&mut loop_errors);
+    errors.sort_by(|a, b| a.path.cmp(&b.path));
+
+    WalkResult { entries, errors }
 }
 
 #[cfg(test)]
@@ -155,8 +225,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         create_basic_tree(&dir);
 
-        let entries = walk_directory(dir.path(), &default_options());
-        let paths: Vec<&str> = entries.iter().map(|e| e.path.to_str().unwrap()).collect();
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
 
         // Should be sorted and include both files and directories.
         assert_eq!(
@@ -170,15 +244,17 @@ mod tests {
         let dir = TempDir::new().unwrap();
         create_basic_tree(&dir);
 
-        let entries = walk_directory(dir.path(), &default_options());
+        let result = walk_directory(dir.path(), &default_options());
 
-        let file_entry = entries
+        let file_entry = result
+            .entries
             .iter()
             .find(|e| e.path.to_str() == Some("a.txt"))
             .unwrap();
         assert!(!file_entry.is_dir);
 
-        let dir_entry = entries
+        let dir_entry = result
+            .entries
             .iter()
             .find(|e| e.path.to_str() == Some("dir1"))
             .unwrap();
@@ -192,8 +268,12 @@ mod tests {
         fs::write(dir.path().join("node_modules/package.json"), "{}").unwrap();
         fs::write(dir.path().join("keep.txt"), "keep").unwrap();
 
-        let entries = walk_directory(dir.path(), &default_options());
-        let paths: Vec<&str> = entries.iter().map(|e| e.path.to_str().unwrap()).collect();
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
 
         assert_eq!(paths, vec!["keep.txt"]);
     }
@@ -204,8 +284,12 @@ mod tests {
         fs::write(dir.path().join(".DS_Store"), "").unwrap();
         fs::write(dir.path().join("keep.txt"), "keep").unwrap();
 
-        let entries = walk_directory(dir.path(), &default_options());
-        let paths: Vec<&str> = entries.iter().map(|e| e.path.to_str().unwrap()).collect();
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
 
         assert_eq!(paths, vec!["keep.txt"]);
     }
@@ -216,8 +300,12 @@ mod tests {
         fs::write(dir.path().join("data.nosync"), "").unwrap();
         fs::write(dir.path().join("keep.txt"), "keep").unwrap();
 
-        let entries = walk_directory(dir.path(), &default_options());
-        let paths: Vec<&str> = entries.iter().map(|e| e.path.to_str().unwrap()).collect();
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
 
         assert_eq!(paths, vec!["keep.txt"]);
     }
@@ -229,8 +317,12 @@ mod tests {
         fs::write(dir.path().join(".sumpig-fingerprints/host.txt"), "").unwrap();
         fs::write(dir.path().join("keep.txt"), "keep").unwrap();
 
-        let entries = walk_directory(dir.path(), &default_options());
-        let paths: Vec<&str> = entries.iter().map(|e| e.path.to_str().unwrap()).collect();
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
 
         assert_eq!(paths, vec!["keep.txt"]);
     }
@@ -242,8 +334,12 @@ mod tests {
         fs::write(dir.path().join(".git/objects/abc"), "data").unwrap();
         fs::write(dir.path().join("keep.txt"), "keep").unwrap();
 
-        let entries = walk_directory(dir.path(), &default_options());
-        let paths: Vec<&str> = entries.iter().map(|e| e.path.to_str().unwrap()).collect();
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
 
         assert!(paths.contains(&".git"));
         assert!(paths.contains(&".git/objects"));
@@ -258,8 +354,12 @@ mod tests {
         fs::write(dir.path().join(".DS_Store"), "").unwrap();
         fs::write(dir.path().join("keep.txt"), "keep").unwrap();
 
-        let entries = walk_directory(dir.path(), &no_ignore_options());
-        let paths: Vec<&str> = entries.iter().map(|e| e.path.to_str().unwrap()).collect();
+        let result = walk_directory(dir.path(), &no_ignore_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
 
         assert!(paths.contains(&"node_modules"));
         assert!(paths.contains(&"node_modules/pkg.json"));
@@ -276,14 +376,19 @@ mod tests {
         // Symlink to a directory -- should appear as an entry but NOT be traversed.
         unix_fs::symlink(dir.path().join("real_dir"), dir.path().join("link_dir")).unwrap();
 
-        let entries = walk_directory(dir.path(), &default_options());
-        let paths: Vec<&str> = entries.iter().map(|e| e.path.to_str().unwrap()).collect();
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
 
         // link_dir should appear but link_dir/file.txt should NOT.
         assert!(paths.contains(&"link_dir"));
         assert!(!paths.contains(&"link_dir/file.txt"));
 
-        let link_entry = entries
+        let link_entry = result
+            .entries
             .iter()
             .find(|e| e.path.to_str() == Some("link_dir"))
             .unwrap();
@@ -296,15 +401,53 @@ mod tests {
         fs::create_dir(dir.path().join("empty")).unwrap();
         fs::write(dir.path().join("file.txt"), "content").unwrap();
 
-        let entries = walk_directory(dir.path(), &default_options());
-        let paths: Vec<&str> = entries.iter().map(|e| e.path.to_str().unwrap()).collect();
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
 
         assert!(paths.contains(&"empty"));
-        let empty_entry = entries
+        let empty_entry = result
+            .entries
             .iter()
             .find(|e| e.path.to_str() == Some("empty"))
             .unwrap();
         assert!(empty_entry.is_dir);
+    }
+
+    #[test]
+    fn walk_unreadable_directory_produces_error() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("readable.txt"), "ok").unwrap();
+        let forbidden = dir.path().join("forbidden");
+        fs::create_dir(&forbidden).unwrap();
+        fs::write(forbidden.join("secret.txt"), "hidden").unwrap();
+
+        // Remove read+execute permission on the directory.
+        fs::set_permissions(&forbidden, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = walk_directory(dir.path(), &default_options());
+
+        // Restore permissions so TempDir cleanup works.
+        fs::set_permissions(&forbidden, fs::Permissions::from_mode(0o755)).unwrap();
+
+        // The forbidden directory itself should appear as an entry (we can stat it),
+        // but reading its contents should produce an error.
+        assert!(
+            !result.errors.is_empty(),
+            "expected walk errors for unreadable directory, got none"
+        );
+        // The readable file should still be found.
+        assert!(
+            result
+                .entries
+                .iter()
+                .any(|e| e.path.to_str() == Some("readable.txt"))
+        );
     }
 
     #[test]
@@ -323,8 +466,12 @@ mod tests {
         }
         fs::write(dir.path().join("keep.txt"), "keep").unwrap();
 
-        let entries = walk_directory(dir.path(), &default_options());
-        let paths: Vec<&str> = entries.iter().map(|e| e.path.to_str().unwrap()).collect();
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
 
         assert_eq!(paths, vec!["keep.txt"]);
     }

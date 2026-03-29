@@ -64,7 +64,7 @@ fn fingerprint_produces_valid_manifest() {
 
     let manifest = fs::read_to_string(&output_file).unwrap();
     assert!(manifest.starts_with("# sumpig fingerprint\n"));
-    assert!(manifest.contains("# version: 1\n"));
+    assert!(manifest.contains("# version: 2\n"));
     assert!(manifest.contains("# host: "));
     assert!(manifest.contains("# depth: 6\n"));
     assert!(manifest.contains("# total_files: 3\n"));
@@ -89,12 +89,12 @@ fn fingerprint_has_correct_entries() {
     let manifest = fs::read_to_string(&output_file).unwrap();
 
     // Should have entries for root, dir1, dir2, and the 3 files.
-    assert!(manifest.contains("  ./\n"));
-    assert!(manifest.contains("  ./dir1/\n"));
-    assert!(manifest.contains("  ./dir2/\n"));
-    assert!(manifest.contains("  ./file_a.txt\n"));
-    assert!(manifest.contains("  ./dir1/file_b.txt\n"));
-    assert!(manifest.contains("  ./dir2/file_c.txt\n"));
+    assert!(manifest.contains("\t./\n"));
+    assert!(manifest.contains("\t./dir1/\n"));
+    assert!(manifest.contains("\t./dir2/\n"));
+    assert!(manifest.contains("\t./file_a.txt\n"));
+    assert!(manifest.contains("\t./dir1/file_b.txt\n"));
+    assert!(manifest.contains("\t./dir2/file_c.txt\n"));
 }
 
 #[test]
@@ -373,7 +373,7 @@ fn fingerprint_empty_directory() {
 
     let manifest = fs::read_to_string(&output_file).unwrap();
     assert!(manifest.contains("# total_files: 0\n"));
-    assert!(manifest.contains("  ./\n")); // Root entry should still exist.
+    assert!(manifest.contains("\t./\n")); // Root entry should still exist.
 }
 
 #[test]

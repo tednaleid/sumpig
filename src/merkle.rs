@@ -168,7 +168,7 @@ fn components_to_path(components: &[String], is_dir: bool) -> String {
 
 /// Compute a synthetic hash for non-Blake3 entries (dataless, error, symlink).
 /// Used to include these entries in directory hash computation.
-pub fn synthetic_hash(entry_type: &str, value: &str) -> [u8; 32] {
+pub(crate) fn synthetic_hash(entry_type: &str, value: &str) -> [u8; 32] {
     let input = format!("{entry_type}:{value}");
     *blake3::hash(input.as_bytes()).as_bytes()
 }

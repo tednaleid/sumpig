@@ -159,15 +159,25 @@ fn run_fingerprint(
         use_default_ignores: !no_ignore,
         num_threads: jobs.unwrap_or(0),
     };
-    let walk_entries = sumpig::walk::walk_directory(&canonical, &walk_options);
+    let walk_result = sumpig::walk::walk_directory(&canonical, &walk_options);
 
     if let Some(sp) = &spinner {
         sp.finish_and_clear();
     }
 
+    // Convert walk errors to FileHash::Error entries so they appear in the manifest.
+    let walk_error_entries: Vec<(PathBuf, sumpig::hash::FileHash)> = walk_result
+        .errors
+        .into_iter()
+        .map(|e| (e.path, sumpig::hash::FileHash::Error(e.reason)))
+        .collect();
+
     // Separate files from directories for hashing.
-    let files_to_hash: Vec<sumpig::walk::WalkEntry> =
-        walk_entries.into_iter().filter(|e| !e.is_dir).collect();
+    let files_to_hash: Vec<sumpig::walk::WalkEntry> = walk_result
+        .entries
+        .into_iter()
+        .filter(|e| !e.is_dir)
+        .collect();
     let file_count = files_to_hash.len();
 
     // Hash files in parallel with progress bar.
@@ -201,8 +211,9 @@ fn run_fingerprint(
         pb.finish_and_clear();
     }
 
-    // Sort by path (should already be sorted from walk, but ensure it).
+    // Merge walk errors into hashed entries, then sort.
     let mut sorted_entries = hashed_entries;
+    sorted_entries.extend(walk_error_entries);
     sorted_entries.sort_by(|a, b| a.0.cmp(&b.0));
 
     // Compute Merkle tree and produce flat entries.

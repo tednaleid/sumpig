@@ -26,8 +26,8 @@ fmt-check:
     cargo fmt -- --check
 
 # Run benchmarks (available after Phase 3)
-bench:
-    cargo bench
+bench *ARGS:
+    cargo bench {{ARGS}}
 
 # Run a specific test by name
 test-one NAME:

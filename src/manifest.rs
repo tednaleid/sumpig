@@ -15,7 +15,7 @@ pub struct ManifestHeader {
 /// A parsed manifest entry (from a fingerprint file).
 #[derive(Debug, PartialEq)]
 pub struct ManifestEntry {
-    pub entry_type: String,
+    pub entry_type: EntryType,
     pub value: String,
     pub path: String,
 }
@@ -27,7 +27,7 @@ pub fn write_manifest<W: io::Write>(
     entries: &[FlatEntry],
 ) -> io::Result<()> {
     writeln!(writer, "# sumpig fingerprint")?;
-    writeln!(writer, "# version: 1")?;
+    writeln!(writer, "# version: 2")?;
     writeln!(writer, "# host: {}", header.host)?;
     writeln!(writer, "# path: {}", header.path)?;
     writeln!(writer, "# depth: {}", header.depth)?;
@@ -43,7 +43,7 @@ pub fn write_manifest<W: io::Write>(
             EntryType::Symlink => "symlink",
             EntryType::Dir => "dir",
         };
-        writeln!(writer, "{type_tag}:{}  {}", entry.value, entry.path)?;
+        writeln!(writer, "{type_tag}:{}\t{}", entry.value, entry.path)?;
     }
     Ok(())
 }
@@ -101,24 +101,38 @@ pub fn parse_manifest<R: io::BufRead>(
             continue;
         }
 
-        // Data line: "type:value  path"
-        let Some((type_value, path)) = line.split_once("  ") else {
+        // Data line: "type:value\tpath"
+        let Some((type_value, path)) = line.split_once('\t') else {
             return Err(ParseError::Format(format!("invalid data line: {line}")));
         };
-        let Some((entry_type, value)) = type_value.split_once(':') else {
+        let Some((type_str, value)) = type_value.split_once(':') else {
             return Err(ParseError::Format(format!(
                 "invalid type:value in data line: {line}"
             )));
         };
 
+        let entry_type = parse_entry_type(type_str)?;
+
         entries.push(ManifestEntry {
-            entry_type: entry_type.to_string(),
+            entry_type,
             value: value.to_string(),
             path: path.to_string(),
         });
     }
 
     Ok((header, entries))
+}
+
+/// Parse an entry type string into the EntryType enum.
+fn parse_entry_type(s: &str) -> Result<EntryType, ParseError> {
+    match s {
+        "blake3" => Ok(EntryType::Blake3),
+        "dataless" => Ok(EntryType::Dataless),
+        "error" => Ok(EntryType::Error),
+        "symlink" => Ok(EntryType::Symlink),
+        "dir" => Ok(EntryType::Dir),
+        _ => Err(ParseError::Format(format!("unknown entry type: {s}"))),
+    }
 }
 
 /// Get the hostname of the current machine.
@@ -153,7 +167,7 @@ pub fn get_iso_date() -> String {
     // Using the civil_from_days algorithm (Howard Hinnant).
     let (year, month, day) = civil_from_days(days as i64);
 
-    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}")
+    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
 }
 
 /// Convert days since 1970-01-01 to (year, month, day).
@@ -255,45 +269,53 @@ mod tests {
 
     #[test]
     fn parse_blake3_entry() {
-        let manifest = "# sumpig fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 1\n# total_dirs: 0\n# root: abc123\nblake3:deadbeefdeadbeefdeadbeefdeadbeef  ./file.txt\n";
+        let manifest = "# sumpig fingerprint\n# version: 2\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00Z\n# total_files: 1\n# total_dirs: 0\n# root: abc123\nblake3:deadbeefdeadbeefdeadbeefdeadbeef\t./file.txt\n";
 
         let (_, entries) = parse_manifest(io::BufReader::new(manifest.as_bytes())).unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].entry_type, "blake3");
+        assert_eq!(entries[0].entry_type, EntryType::Blake3);
         assert_eq!(entries[0].value, "deadbeefdeadbeefdeadbeefdeadbeef");
         assert_eq!(entries[0].path, "./file.txt");
     }
 
     #[test]
     fn parse_dataless_entry() {
-        let manifest = "# sumpig fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 1\n# total_dirs: 0\n# root: abc123\ndataless:12345  ./evicted.dat\n";
+        let manifest = "# sumpig fingerprint\n# version: 2\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00Z\n# total_files: 1\n# total_dirs: 0\n# root: abc123\ndataless:12345\t./evicted.dat\n";
 
         let (_, entries) = parse_manifest(io::BufReader::new(manifest.as_bytes())).unwrap();
-        assert_eq!(entries[0].entry_type, "dataless");
+        assert_eq!(entries[0].entry_type, EntryType::Dataless);
         assert_eq!(entries[0].value, "12345");
     }
 
     #[test]
     fn parse_error_entry() {
-        let manifest = "# sumpig fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 1\n# total_dirs: 0\n# root: abc123\nerror:permission denied  ./locked.db\n";
+        let manifest = "# sumpig fingerprint\n# version: 2\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00Z\n# total_files: 1\n# total_dirs: 0\n# root: abc123\nerror:permission denied\t./locked.db\n";
 
         let (_, entries) = parse_manifest(io::BufReader::new(manifest.as_bytes())).unwrap();
-        assert_eq!(entries[0].entry_type, "error");
+        assert_eq!(entries[0].entry_type, EntryType::Error);
         assert_eq!(entries[0].value, "permission denied");
     }
 
     #[test]
     fn parse_symlink_entry() {
-        let manifest = "# sumpig fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 1\n# total_dirs: 0\n# root: abc123\nsymlink:/target/path  ./link\n";
+        let manifest = "# sumpig fingerprint\n# version: 2\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00Z\n# total_files: 1\n# total_dirs: 0\n# root: abc123\nsymlink:/target/path\t./link\n";
 
         let (_, entries) = parse_manifest(io::BufReader::new(manifest.as_bytes())).unwrap();
-        assert_eq!(entries[0].entry_type, "symlink");
+        assert_eq!(entries[0].entry_type, EntryType::Symlink);
         assert_eq!(entries[0].value, "/target/path");
     }
 
     #[test]
     fn parse_rejects_malformed_data_line() {
-        let manifest = "# sumpig fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 0\n# total_dirs: 0\n# root: abc\nthis is not valid\n";
+        let manifest = "# sumpig fingerprint\n# version: 2\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00Z\n# total_files: 0\n# total_dirs: 0\n# root: abc\nthis is not valid\n";
+
+        let result = parse_manifest(io::BufReader::new(manifest.as_bytes()));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_rejects_unknown_entry_type() {
+        let manifest = "# sumpig fingerprint\n# version: 2\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00Z\n# total_files: 1\n# total_dirs: 0\n# root: abc\nunknown:value\t./file.txt\n";
 
         let result = parse_manifest(io::BufReader::new(manifest.as_bytes()));
         assert!(result.is_err());
@@ -301,7 +323,7 @@ mod tests {
 
     #[test]
     fn parse_ignores_unknown_header_fields() {
-        let manifest = "# sumpig fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 0\n# total_dirs: 0\n# root: abc\n# unknown_field: whatever\n";
+        let manifest = "# sumpig fingerprint\n# version: 2\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00Z\n# total_files: 0\n# total_dirs: 0\n# root: abc\n# unknown_field: whatever\n";
 
         let result = parse_manifest(io::BufReader::new(manifest.as_bytes()));
         assert!(result.is_ok());
@@ -309,7 +331,7 @@ mod tests {
 
     #[test]
     fn parse_empty_manifest_header_only() {
-        let manifest = "# sumpig fingerprint\n# version: 1\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00\n# total_files: 0\n# total_dirs: 0\n# root: abc\n";
+        let manifest = "# sumpig fingerprint\n# version: 2\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00Z\n# total_files: 0\n# total_dirs: 0\n# root: abc\n";
 
         let (header, entries) = parse_manifest(io::BufReader::new(manifest.as_bytes())).unwrap();
         assert_eq!(header.host, "h");
@@ -330,9 +352,11 @@ mod tests {
         assert!(output.contains("# host: testhost\n"));
         assert!(output.contains("# depth: 6\n"));
 
-        // Data lines use two-space separator.
-        assert!(output.contains("blake3:deadbeefdeadbeefdeadbeefdeadbeef  ./file.txt\n"));
-        assert!(output.contains("dir:cafebabecafebabecafebabecafebabe  ./subdir/\n"));
+        assert!(output.contains("# version: 2\n"));
+
+        // Data lines use tab separator.
+        assert!(output.contains("blake3:deadbeefdeadbeefdeadbeefdeadbeef\t./file.txt\n"));
+        assert!(output.contains("dir:cafebabecafebabecafebabecafebabe\t./subdir/\n"));
     }
 
     #[test]
@@ -344,12 +368,13 @@ mod tests {
     #[test]
     fn get_iso_date_format() {
         let date = get_iso_date();
-        // Should look like 2026-03-28T15:30:00 (19 chars).
-        assert_eq!(date.len(), 19, "ISO date should be 19 chars: {date}");
+        // Should look like 2026-03-28T15:30:00Z (20 chars, trailing Z for UTC).
+        assert_eq!(date.len(), 20, "ISO date should be 20 chars: {date}");
         assert_eq!(&date[4..5], "-");
         assert_eq!(&date[7..8], "-");
         assert_eq!(&date[10..11], "T");
         assert_eq!(&date[13..14], ":");
         assert_eq!(&date[16..17], ":");
+        assert!(date.ends_with('Z'), "ISO date should end with Z: {date}");
     }
 }

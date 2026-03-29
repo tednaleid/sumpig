@@ -79,9 +79,9 @@ fn check_dataless(path: &Path) -> Option<u64> {
 }
 
 /// Read and hash file contents with BLAKE3 using buffered reads.
-/// All files use the same streaming path -- outer parallelism (rayon par_iter)
-/// handles throughput across files, so per-file multi-threading is unnecessary
-/// and risks OOM when many large files are hashed concurrently.
+/// Outer parallelism (rayon par_iter over files) handles throughput;
+/// per-file multi-threading causes thread contention and is slower
+/// in real-world workloads with many files hashed concurrently.
 fn hash_file_contents(path: &Path) -> std::io::Result<[u8; 32]> {
     let mut file = fs::File::open(path)?;
     let mut hasher = blake3::Hasher::new();
