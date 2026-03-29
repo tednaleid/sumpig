@@ -30,19 +30,31 @@ Aggregate parallel throughput (par_iter over many files, criterion benchmarks):
 
 | Workload | Aggregate throughput |
 |----------|---------------------|
-| 1000 x 10KB files | ~1.0 GiB/s |
-| 100 x 1MB files   | ~18 GiB/s  |
-| 10 x 10MB files   | ~17 GiB/s  |
+| 1000 x 10KB files  | ~600 MiB/s |
+| 100 x 1MB files    | ~12 GiB/s  |
+| 10 x 10MB files    | ~13 GiB/s  |
+| 10000 x 100KB files | ~8.8 GiB/s |
 
 Real-world benchmark on a ~40K file directory tree: ~30 seconds wall-clock time.
 
 ## Benchmarking methodology
 
 The `hash_parallel` benchmark group (in `benches/hash_bench.rs`) tests hashing many files
-concurrently via `par_iter`, matching the real fingerprint pipeline. This is critical for
-evaluating hashing strategies because per-file isolation benchmarks can be misleading --
-they miss thread contention and resource sharing effects that dominate real-world
-performance (see mmap+rayon experiment below).
+concurrently via `par_iter`, matching the real fingerprint pipeline. Fixture files are
+created once in `target/bench-fixtures/` and reused across runs so file creation overhead
+doesn't pollute measurements.
+
+This is critical for evaluating hashing strategies because per-file isolation benchmarks
+can be misleading -- they miss thread contention and resource sharing effects that dominate
+real-world performance (see mmap+rayon experiment below).
+
+**Limitation**: Even the parallel benchmarks may not fully reproduce real-world behavior.
+The mmap+rayon experiment showed only minor differences in criterion benchmarks (100-10K
+files) but a 2.5x slowdown on a real 40K-file directory tree. Contributing factors that
+benchmarks don't capture: mixed file sizes, cold cache, filesystem metadata pressure, and
+deeper rayon task queue contention at higher file counts. The real-world `sumpig
+fingerprint` test on an actual directory tree remains the definitive measurement for
+hashing strategy decisions.
 
 ## Experiments tried
 
