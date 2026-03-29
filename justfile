@@ -80,8 +80,9 @@ bump version="":
     echo "v$new released!"
 
 # Delete a GitHub release and re-tag the current commit to re-trigger release workflows
-retag tag:
-    gh release delete {{tag}} --yes || true
-    git push origin :refs/tags/{{tag}} || true
-    git tag -f {{tag}}
+# Usage: just retag 0.2.0
+retag version:
+    gh release delete "v{{version}}" --yes || true
+    git push origin :refs/tags/"v{{version}}" || true
+    git tag -f "v{{version}}"
     git push && git push --tags
