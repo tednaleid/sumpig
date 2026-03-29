@@ -109,8 +109,10 @@ fn run_compare(
         );
     }
 
-    let result =
-        sumpig::compare::compare_manifests(&entries1, &entries2, &header1.host, &header2.host);
+    let label1 = format!("{} ({})", header1.host, header1.date);
+    let label2 = format!("{} ({})", header2.host, header2.date);
+
+    let result = sumpig::compare::compare_manifests(&entries1, &entries2, &label1, &label2);
 
     let report = sumpig::compare::format_report(&result);
     print!("{report}");

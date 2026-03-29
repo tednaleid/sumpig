@@ -46,5 +46,4 @@ just fmt      # format code
 
 ## Reference
 
-- Full design rationale: `docs/spec/sumpig-spec.md`
 - Contract and phase specs: `docs/spec/`
