@@ -9,6 +9,7 @@ pub struct ManifestHeader {
     pub date: String,
     pub total_files: usize,
     pub total_dirs: usize,
+    pub total_bytes: u64,
     pub root_hash: String,
     /// Fingerprint mode: "content" (default) or "fast" (metadata-only).
     pub mode: String,
@@ -36,6 +37,7 @@ pub fn write_manifest<W: io::Write>(
     writeln!(writer, "# date: {}", header.date)?;
     writeln!(writer, "# total_files: {}", header.total_files)?;
     writeln!(writer, "# total_dirs: {}", header.total_dirs)?;
+    writeln!(writer, "# total_bytes: {}", header.total_bytes)?;
     writeln!(writer, "# root: {}", header.root_hash)?;
     writeln!(writer, "# mode: {}", header.mode)?;
     for entry in entries {
@@ -62,6 +64,7 @@ pub fn parse_manifest<R: io::BufRead>(
         date: String::new(),
         total_files: 0,
         total_dirs: 0,
+        total_bytes: 0,
         root_hash: String::new(),
         mode: "content".to_string(),
     };
@@ -95,6 +98,11 @@ pub fn parse_manifest<R: io::BufRead>(
                     "total_dirs" => {
                         header.total_dirs = value.parse().map_err(|_| {
                             ParseError::Format(format!("invalid total_dirs: {value}"))
+                        })?;
+                    }
+                    "total_bytes" => {
+                        header.total_bytes = value.parse().map_err(|_| {
+                            ParseError::Format(format!("invalid total_bytes: {value}"))
                         })?;
                     }
                     "root" => header.root_hash = value.to_string(),
@@ -227,6 +235,7 @@ mod tests {
             date: "2026-03-28T15:30:00".to_string(),
             total_files: 3,
             total_dirs: 2,
+            total_bytes: 1024,
             root_hash: "a1b2c3d4e5f67890a1b2c3d4e5f67890".to_string(),
             mode: "content".to_string(),
         }

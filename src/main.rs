@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
@@ -224,21 +225,24 @@ fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::
         None
     };
 
+    let total_bytes = AtomicU64::new(0);
     let hashed_entries: Vec<(PathBuf, sumpig::hash::FileHash)> = files_to_hash
         .into_par_iter()
         .map(|e| {
             let full_path = canonical.join(&e.path);
-            let file_hash = if opts.verify_contents {
+            let (file_hash, size) = if opts.verify_contents {
                 sumpig::hash::hash_file(&full_path)
             } else {
                 sumpig::hash::hash_file_metadata(&full_path)
             };
+            total_bytes.fetch_add(size, Ordering::Relaxed);
             if let Some(pb) = &pb {
                 pb.inc(1);
             }
             (e.path, file_hash)
         })
         .collect();
+    let total_bytes = total_bytes.into_inner();
 
     if let Some(pb) = &pb {
         pb.finish_and_clear();
@@ -265,6 +269,7 @@ fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::
         date: sumpig::manifest::get_iso_date(),
         total_files: file_count,
         total_dirs,
+        total_bytes,
         root_hash: sumpig::hash::hash_to_hex(&root_hash),
         mode: if opts.verify_contents {
             "content"
@@ -302,9 +307,10 @@ fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::
     if !opts.quiet {
         let elapsed = start.elapsed();
         eprintln!(
-            "{} files, {} dirs in {:.2}s | root: {} | {}",
+            "{} files, {} dirs, {} in {:.2}s | root: {} | {}",
             file_count,
             total_dirs,
+            format_bytes(total_bytes),
             elapsed.as_secs_f64(),
             sumpig::hash::hash_to_hex(&root_hash),
             output_path.display(),
@@ -312,4 +318,24 @@ fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::
     }
 
     Ok(())
+}
+
+/// Format a byte count as a human-readable string (e.g., "2.4 GB", "156 MB").
+fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = 1024 * KB;
+    const GB: u64 = 1024 * MB;
+    const TB: u64 = 1024 * GB;
+
+    if bytes >= TB {
+        format!("{:.1} TB", bytes as f64 / TB as f64)
+    } else if bytes >= GB {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{bytes} B")
+    }
 }

@@ -68,6 +68,7 @@ fn fingerprint_produces_valid_manifest() {
     assert!(manifest.contains("# host: "));
     assert!(manifest.contains("# depth: 6\n"));
     assert!(manifest.contains("# total_files: 3\n"));
+    assert!(manifest.contains("# total_bytes: 9\n"));
 }
 
 #[test]

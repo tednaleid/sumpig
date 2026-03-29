@@ -19,23 +19,20 @@ pub enum FileHash {
 }
 
 /// Hash a file at the given path.
-///
-/// Checks (in order):
-/// 1. Is it a symlink? -> return Symlink(target)
-/// 2. Is it a macOS dataless file? -> return Dataless(size)
-/// 3. Read and hash with BLAKE3 -> return Blake3(hash)
-/// 4. On any I/O error -> return Error(description)
-pub fn hash_file(path: &Path) -> FileHash {
+/// Returns (FileHash, file_size_bytes). Size is 0 for symlinks and errors.
+pub fn hash_file(path: &Path) -> (FileHash, u64) {
     // Use symlink_metadata (lstat) to check symlink status without following.
     let metadata = match fs::symlink_metadata(path) {
         Ok(m) => m,
-        Err(e) => return FileHash::Error(e.to_string()),
+        Err(e) => return (FileHash::Error(e.to_string()), 0),
     };
+
+    let file_size = metadata.len();
 
     if metadata.is_symlink() {
         return match fs::read_link(path) {
-            Ok(target) => FileHash::Symlink(target.to_string_lossy().into_owned()),
-            Err(e) => FileHash::Error(e.to_string()),
+            Ok(target) => (FileHash::Symlink(target.to_string_lossy().into_owned()), 0),
+            Err(e) => (FileHash::Error(e.to_string()), 0),
         };
     }
 
@@ -43,14 +40,14 @@ pub fn hash_file(path: &Path) -> FileHash {
     #[cfg(target_os = "macos")]
     {
         if let Some(size) = check_dataless(path) {
-            return FileHash::Dataless(size);
+            return (FileHash::Dataless(size), file_size);
         }
     }
 
     // Hash the file contents with BLAKE3.
     match hash_file_contents(path) {
-        Ok(hash) => FileHash::Blake3(hash),
-        Err(e) => FileHash::Error(e.to_string()),
+        Ok(hash) => (FileHash::Blake3(hash), file_size),
+        Err(e) => (FileHash::Error(e.to_string()), 0),
     }
 }
 
@@ -97,31 +94,30 @@ fn hash_file_contents(path: &Path) -> std::io::Result<[u8; 32]> {
 }
 
 /// Hash a file using only its metadata (size + mtime) instead of reading contents.
-/// Used for fast fingerprinting where I/O is the bottleneck and content reads
-/// can be skipped. Symlinks, dataless files, and errors are handled identically
-/// to content-mode hashing.
-pub fn hash_file_metadata(path: &Path) -> FileHash {
+/// Returns (FileHash, file_size_bytes). Size is 0 for symlinks and errors.
+pub fn hash_file_metadata(path: &Path) -> (FileHash, u64) {
     let metadata = match fs::symlink_metadata(path) {
         Ok(m) => m,
-        Err(e) => return FileHash::Error(e.to_string()),
+        Err(e) => return (FileHash::Error(e.to_string()), 0),
     };
+
+    let file_size = metadata.len();
 
     if metadata.is_symlink() {
         return match fs::read_link(path) {
-            Ok(target) => FileHash::Symlink(target.to_string_lossy().into_owned()),
-            Err(e) => FileHash::Error(e.to_string()),
+            Ok(target) => (FileHash::Symlink(target.to_string_lossy().into_owned()), 0),
+            Err(e) => (FileHash::Error(e.to_string()), 0),
         };
     }
 
     #[cfg(target_os = "macos")]
     {
         if let Some(size) = check_dataless(path) {
-            return FileHash::Dataless(size);
+            return (FileHash::Dataless(size), file_size);
         }
     }
 
     // Hash file metadata: size and modification time.
-    let size = metadata.len();
     let mtime_nanos = metadata
         .modified()
         .ok()
@@ -129,9 +125,9 @@ pub fn hash_file_metadata(path: &Path) -> FileHash {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
 
-    let input = format!("meta:{size}:{mtime_nanos}");
+    let input = format!("meta:{file_size}:{mtime_nanos}");
     let hash = *blake3::hash(input.as_bytes()).as_bytes();
-    FileHash::Blake3(hash)
+    (FileHash::Blake3(hash), file_size)
 }
 
 /// Format a 32-byte hash as truncated hex (32 hex chars = 128 bits).
@@ -158,7 +154,7 @@ mod tests {
 
         let expected = *blake3::hash(b"hello world").as_bytes();
 
-        match hash_file(&file) {
+        match hash_file(&file).0 {
             FileHash::Blake3(hash) => assert_eq!(hash, expected),
             other => panic!("expected Blake3, got {other:?}"),
         }
@@ -172,7 +168,7 @@ mod tests {
 
         let expected = *blake3::hash(b"").as_bytes();
 
-        match hash_file(&file) {
+        match hash_file(&file).0 {
             FileHash::Blake3(hash) => assert_eq!(hash, expected),
             other => panic!("expected Blake3, got {other:?}"),
         }
@@ -186,7 +182,7 @@ mod tests {
         let link = dir.path().join("link.txt");
         unix_fs::symlink(&target, &link).unwrap();
 
-        match hash_file(&link) {
+        match hash_file(&link).0 {
             FileHash::Symlink(t) => assert_eq!(t, target.to_string_lossy()),
             other => panic!("expected Symlink, got {other:?}"),
         }
@@ -195,7 +191,7 @@ mod tests {
     #[test]
     fn hash_nonexistent_returns_error() {
         let path = Path::new("/nonexistent/file.txt");
-        match hash_file(path) {
+        match hash_file(path).0 {
             FileHash::Error(_) => {}
             other => panic!("expected Error, got {other:?}"),
         }
@@ -225,7 +221,7 @@ mod tests {
         let file = dir.path().join("data.txt");
         fs::write(&file, b"some content").unwrap();
 
-        match hash_file(&file) {
+        match hash_file(&file).0 {
             FileHash::Blake3(hash) => assert_eq!(hash.len(), 32, "internal hash must be 32 bytes"),
             other => panic!("expected Blake3, got {other:?}"),
         }
@@ -237,7 +233,7 @@ mod tests {
         let link = dir.path().join("dangling");
         unix_fs::symlink("/nonexistent/target", &link).unwrap();
 
-        match hash_file(&link) {
+        match hash_file(&link).0 {
             FileHash::Symlink(t) => assert_eq!(t, "/nonexistent/target"),
             other => panic!("expected Symlink, got {other:?}"),
         }
@@ -249,7 +245,7 @@ mod tests {
         let file = dir.path().join("test.txt");
         fs::write(&file, b"content").unwrap();
 
-        match hash_file_metadata(&file) {
+        match hash_file_metadata(&file).0 {
             FileHash::Blake3(_) => {}
             other => panic!("expected Blake3, got {other:?}"),
         }
@@ -261,11 +257,11 @@ mod tests {
         let file = dir.path().join("stable.txt");
         fs::write(&file, b"content").unwrap();
 
-        let h1 = match hash_file_metadata(&file) {
+        let h1 = match hash_file_metadata(&file).0 {
             FileHash::Blake3(h) => h,
             other => panic!("expected Blake3, got {other:?}"),
         };
-        let h2 = match hash_file_metadata(&file) {
+        let h2 = match hash_file_metadata(&file).0 {
             FileHash::Blake3(h) => h,
             other => panic!("expected Blake3, got {other:?}"),
         };
@@ -278,11 +274,11 @@ mod tests {
         let file = dir.path().join("test.txt");
         fs::write(&file, b"content").unwrap();
 
-        let content = match hash_file(&file) {
+        let content = match hash_file(&file).0 {
             FileHash::Blake3(h) => h,
             other => panic!("expected Blake3, got {other:?}"),
         };
-        let meta = match hash_file_metadata(&file) {
+        let meta = match hash_file_metadata(&file).0 {
             FileHash::Blake3(h) => h,
             other => panic!("expected Blake3, got {other:?}"),
         };
@@ -295,14 +291,14 @@ mod tests {
         let file = dir.path().join("growing.txt");
         fs::write(&file, b"short").unwrap();
 
-        let h1 = match hash_file_metadata(&file) {
+        let h1 = match hash_file_metadata(&file).0 {
             FileHash::Blake3(h) => h,
             other => panic!("expected Blake3, got {other:?}"),
         };
 
         fs::write(&file, b"longer content here").unwrap();
 
-        let h2 = match hash_file_metadata(&file) {
+        let h2 = match hash_file_metadata(&file).0 {
             FileHash::Blake3(h) => h,
             other => panic!("expected Blake3, got {other:?}"),
         };
@@ -317,7 +313,7 @@ mod tests {
         let link = dir.path().join("link.txt");
         unix_fs::symlink(&target, &link).unwrap();
 
-        match hash_file_metadata(&link) {
+        match hash_file_metadata(&link).0 {
             FileHash::Symlink(t) => assert_eq!(t, target.to_string_lossy()),
             other => panic!("expected Symlink, got {other:?}"),
         }
@@ -326,7 +322,7 @@ mod tests {
     #[test]
     fn metadata_hash_nonexistent_returns_error() {
         let path = Path::new("/nonexistent/file.txt");
-        match hash_file_metadata(path) {
+        match hash_file_metadata(path).0 {
             FileHash::Error(_) => {}
             other => panic!("expected Error, got {other:?}"),
         }
