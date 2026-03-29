@@ -10,6 +10,7 @@ use rayon::prelude::*;
 #[derive(Parser)]
 #[command(
     name = "sumpig",
+    version,
     about = "Merkle tree directory fingerprinting and comparison"
 )]
 struct Cli {
