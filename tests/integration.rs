@@ -580,13 +580,13 @@ fn compare_depth_mismatch_same_root() {
         .stdout(predicate::str::contains("identical"));
 }
 
-// --- Fast mode integration tests ---
+// --- Mode integration tests ---
 
 #[test]
-fn fast_mode_produces_valid_manifest() {
+fn default_mode_is_fast() {
     let dir = TempDir::new().unwrap();
     let tree = create_test_tree(&dir);
-    let output_file = dir.path().join("fast.txt");
+    let output_file = dir.path().join("manifest.txt");
 
     sumpig()
         .args([
@@ -594,7 +594,6 @@ fn fast_mode_produces_valid_manifest() {
             &tree.to_string_lossy(),
             "--output",
             &output_file.to_string_lossy(),
-            "--fast",
         ])
         .assert()
         .success();
@@ -606,11 +605,11 @@ fn fast_mode_produces_valid_manifest() {
 }
 
 #[test]
-fn fast_mode_deterministic() {
+fn default_mode_deterministic() {
     let dir = TempDir::new().unwrap();
     let tree = create_test_tree(&dir);
-    let out1 = dir.path().join("fast1.txt");
-    let out2 = dir.path().join("fast2.txt");
+    let out1 = dir.path().join("run1.txt");
+    let out2 = dir.path().join("run2.txt");
 
     sumpig()
         .args([
@@ -618,7 +617,6 @@ fn fast_mode_deterministic() {
             &tree.to_string_lossy(),
             "--output",
             &out1.to_string_lossy(),
-            "--fast",
         ])
         .assert()
         .success();
@@ -628,7 +626,6 @@ fn fast_mode_deterministic() {
             &tree.to_string_lossy(),
             "--output",
             &out2.to_string_lossy(),
-            "--fast",
         ])
         .assert()
         .success();
@@ -639,7 +636,7 @@ fn fast_mode_deterministic() {
 }
 
 #[test]
-fn fast_mode_detects_file_modification() {
+fn default_mode_detects_file_modification() {
     let dir = TempDir::new().unwrap();
     let tree = create_test_tree(&dir);
     let before = dir.path().join("before.txt");
@@ -650,7 +647,6 @@ fn fast_mode_detects_file_modification() {
             &tree.to_string_lossy(),
             "--output",
             &before.to_string_lossy(),
-            "--fast",
             "--quiet",
         ])
         .assert()
@@ -666,7 +662,6 @@ fn fast_mode_detects_file_modification() {
             &tree.to_string_lossy(),
             "--output",
             &after.to_string_lossy(),
-            "--fast",
             "--quiet",
         ])
         .assert()
@@ -678,7 +673,49 @@ fn fast_mode_detects_file_modification() {
 }
 
 #[test]
-fn fast_and_content_produce_different_hashes() {
+fn verify_contents_produces_content_mode() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let output_file = dir.path().join("content.txt");
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &output_file.to_string_lossy(),
+            "--verify-contents",
+        ])
+        .assert()
+        .success();
+
+    let manifest = fs::read_to_string(&output_file).unwrap();
+    assert!(manifest.contains("# mode: content\n"));
+}
+
+#[test]
+fn verify_contents_short_flag() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let output_file = dir.path().join("content.txt");
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &output_file.to_string_lossy(),
+            "-C",
+        ])
+        .assert()
+        .success();
+
+    let manifest = fs::read_to_string(&output_file).unwrap();
+    assert!(manifest.contains("# mode: content\n"));
+}
+
+#[test]
+fn default_and_verify_contents_produce_different_hashes() {
     let dir = TempDir::new().unwrap();
     let tree = create_test_tree(&dir);
     let fast_out = dir.path().join("fast.txt");
@@ -690,7 +727,6 @@ fn fast_and_content_produce_different_hashes() {
             &tree.to_string_lossy(),
             "--output",
             &fast_out.to_string_lossy(),
-            "--fast",
             "--quiet",
         ])
         .assert()
@@ -701,6 +737,7 @@ fn fast_and_content_produce_different_hashes() {
             &tree.to_string_lossy(),
             "--output",
             &content_out.to_string_lossy(),
+            "--verify-contents",
             "--quiet",
         ])
         .assert()
@@ -730,7 +767,6 @@ fn compare_mode_mismatch_warns() {
             &tree.to_string_lossy(),
             "--output",
             &fast_out.to_string_lossy(),
-            "--fast",
             "--quiet",
         ])
         .assert()
@@ -741,6 +777,7 @@ fn compare_mode_mismatch_warns() {
             &tree.to_string_lossy(),
             "--output",
             &content_out.to_string_lossy(),
+            "--verify-contents",
             "--quiet",
         ])
         .assert()
@@ -754,26 +791,6 @@ fn compare_mode_mismatch_warns() {
         ])
         .assert()
         .stderr(predicate::str::contains("mode mismatch"));
-}
-
-#[test]
-fn default_mode_is_content() {
-    let dir = TempDir::new().unwrap();
-    let tree = create_test_tree(&dir);
-    let output_file = dir.path().join("manifest.txt");
-
-    sumpig()
-        .args([
-            "fingerprint",
-            &tree.to_string_lossy(),
-            "--output",
-            &output_file.to_string_lossy(),
-        ])
-        .assert()
-        .success();
-
-    let manifest = fs::read_to_string(&output_file).unwrap();
-    assert!(manifest.contains("# mode: content\n"));
 }
 
 // --- Tag integration tests ---

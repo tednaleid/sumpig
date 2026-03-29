@@ -43,9 +43,9 @@ enum Commands {
         #[arg(short, long)]
         quiet: bool,
 
-        /// Use file metadata (size + mtime) instead of content hashing
-        #[arg(long)]
-        fast: bool,
+        /// Hash file contents instead of metadata (slower, detects silent corruption)
+        #[arg(short = 'C', long)]
+        verify_contents: bool,
 
         /// Tag the output file with a name (or timestamp if no name given)
         #[arg(long, num_args = 0..=1, default_missing_value = "")]
@@ -71,7 +71,7 @@ fn main() {
             jobs,
             no_ignore,
             quiet,
-            fast,
+            verify_contents,
             tag,
         } => {
             if let Err(e) = run_fingerprint(&FingerprintOptions {
@@ -81,7 +81,7 @@ fn main() {
                 jobs,
                 no_ignore,
                 quiet,
-                fast,
+                verify_contents,
                 tag: tag.as_deref(),
             }) {
                 eprintln!("error: {e}");
@@ -158,7 +158,7 @@ struct FingerprintOptions<'a> {
     jobs: Option<usize>,
     no_ignore: bool,
     quiet: bool,
-    fast: bool,
+    verify_contents: bool,
     tag: Option<&'a str>,
 }
 
@@ -228,10 +228,10 @@ fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::
         .into_par_iter()
         .map(|e| {
             let full_path = canonical.join(&e.path);
-            let file_hash = if opts.fast {
-                sumpig::hash::hash_file_metadata(&full_path)
-            } else {
+            let file_hash = if opts.verify_contents {
                 sumpig::hash::hash_file(&full_path)
+            } else {
+                sumpig::hash::hash_file_metadata(&full_path)
             };
             if let Some(pb) = &pb {
                 pb.inc(1);
@@ -266,7 +266,12 @@ fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::
         total_files: file_count,
         total_dirs,
         root_hash: sumpig::hash::hash_to_hex(&root_hash),
-        mode: if opts.fast { "fast" } else { "content" }.to_string(),
+        mode: if opts.verify_contents {
+            "content"
+        } else {
+            "fast"
+        }
+        .to_string(),
     };
 
     // Determine output path.
