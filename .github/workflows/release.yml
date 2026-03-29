@@ -20,7 +20,7 @@ jobs:
             os: ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup target add ${{ matrix.target }}
       - run: cargo build --release --target ${{ matrix.target }}
@@ -28,7 +28,7 @@ jobs:
         run: |
           cd target/${{ matrix.target }}/release
           tar czf ../../../sumpig-${{ matrix.target }}.tar.gz sumpig
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: sumpig-${{ matrix.target }}
           path: sumpig-${{ matrix.target }}.tar.gz
@@ -37,8 +37,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
         with:
           merge-multiple: true
       - name: Create GitHub Release
