@@ -64,7 +64,8 @@ fn main() {
             no_ignore,
             quiet,
         } => {
-            if let Err(e) = run_fingerprint(&path, depth, output.as_deref(), jobs, no_ignore, quiet) {
+            if let Err(e) = run_fingerprint(&path, depth, output.as_deref(), jobs, no_ignore, quiet)
+            {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             }

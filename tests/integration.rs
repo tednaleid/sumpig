@@ -427,7 +427,11 @@ fn compare_identical_manifests() {
     fs::copy(&manifest, &copy).unwrap();
 
     sumpig()
-        .args(["compare", &manifest.to_string_lossy(), &copy.to_string_lossy()])
+        .args([
+            "compare",
+            &manifest.to_string_lossy(),
+            &copy.to_string_lossy(),
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("identical"));
@@ -446,7 +450,11 @@ fn compare_modified_file_reports_diff() {
     fingerprint_to(&tree, &after);
 
     sumpig()
-        .args(["compare", &before.to_string_lossy(), &after.to_string_lossy()])
+        .args([
+            "compare",
+            &before.to_string_lossy(),
+            &after.to_string_lossy(),
+        ])
         .assert()
         .failure()
         .stdout(predicate::str::contains("./file_a.txt"));
@@ -465,7 +473,11 @@ fn compare_added_file_reports_only_in_second() {
     fingerprint_to(&tree, &after);
 
     sumpig()
-        .args(["compare", &before.to_string_lossy(), &after.to_string_lossy()])
+        .args([
+            "compare",
+            &before.to_string_lossy(),
+            &after.to_string_lossy(),
+        ])
         .assert()
         .failure()
         .stdout(predicate::str::contains("./new_file.txt"));
@@ -484,7 +496,11 @@ fn compare_deleted_file_reports_only_in_first() {
     fingerprint_to(&tree, &after);
 
     sumpig()
-        .args(["compare", &before.to_string_lossy(), &after.to_string_lossy()])
+        .args([
+            "compare",
+            &before.to_string_lossy(),
+            &after.to_string_lossy(),
+        ])
         .assert()
         .failure()
         .stdout(predicate::str::contains("./file_a.txt"));

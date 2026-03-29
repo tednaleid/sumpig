@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use tempfile::NamedTempFile;
 
 fn create_temp_file(size: usize) -> NamedTempFile {
