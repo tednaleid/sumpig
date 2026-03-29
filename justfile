@@ -54,9 +54,11 @@ bump version="":
         new="{{version}}"
     fi
     echo "Bumping $current -> $new"
-    sed -i '' "s/^version = \"$current\"/version = \"$new\"/" Cargo.toml
-    git add Cargo.toml
-    git commit -m "Bump version to $new"
+    if [ "$current" != "$new" ]; then
+        sed -i '' "s/^version = \"$current\"/version = \"$new\"/" Cargo.toml
+        git add Cargo.toml
+        git commit -m "Bump version to $new"
+    fi
     # Generate release notes from commits since last tag
     prev_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
     if [ -n "$prev_tag" ]; then
