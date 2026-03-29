@@ -56,7 +56,8 @@ bump version="":
     echo "Bumping $current -> $new"
     if [ "$current" != "$new" ]; then
         sed -i '' "s/^version = \"$current\"/version = \"$new\"/" Cargo.toml
-        git add Cargo.toml
+        cargo generate-lockfile --quiet
+        git add Cargo.toml Cargo.lock
         git commit -m "Bump version to $new"
     fi
     # Generate release notes from commits since last tag
