@@ -44,6 +44,29 @@ Options:
 - `--jobs N` -- number of worker threads (default: all cores).
 - `--no-ignore` -- disable the default ignore list (node_modules, target, .venv, etc.).
 - `--quiet` -- suppress progress bars and summary output.
+- `--fast` -- use file metadata (size + modification time) instead of reading file contents.
+
+### Fast mode
+
+```
+sumpig fingerprint --fast ~/Documents
+```
+
+Fast mode hashes file metadata instead of reading file contents. On a 40K-file directory
+tree this runs in about 5 seconds vs 28 seconds for content mode -- roughly 5x faster.
+
+The Merkle tree structure is identical in both modes: if two fast-mode root hashes match,
+every file has the same size and modification time on both machines. This is a strong
+signal that iCloud sync completed correctly, since iCloud preserves modification times.
+
+Use fast mode for routine checks where you want a quick answer. Use content mode (the
+default) when you need to verify actual file contents, such as after recovering from a
+known sync failure or when checking integrity of git repositories where silent corruption
+is a concern.
+
+Manifests record their mode in the header (`# mode: fast` or `# mode: content`). The
+compare command warns if you compare manifests from different modes, since their hashes
+are not comparable.
 
 ### Compare two fingerprints
 
