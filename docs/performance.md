@@ -26,7 +26,23 @@ Small files are dominated by file-open overhead. Larger files saturate at around
 per thread, which is the single-threaded BLAKE3 rate on this hardware. With file-level
 parallelism across all cores, aggregate throughput is much higher.
 
+Aggregate parallel throughput (par_iter over many files, criterion benchmarks):
+
+| Workload | Aggregate throughput |
+|----------|---------------------|
+| 1000 x 10KB files | ~1.0 GiB/s |
+| 100 x 1MB files   | ~18 GiB/s  |
+| 10 x 10MB files   | ~17 GiB/s  |
+
 Real-world benchmark on a ~40K file directory tree: ~30 seconds wall-clock time.
+
+## Benchmarking methodology
+
+The `hash_parallel` benchmark group (in `benches/hash_bench.rs`) tests hashing many files
+concurrently via `par_iter`, matching the real fingerprint pipeline. This is critical for
+evaluating hashing strategies because per-file isolation benchmarks can be misleading --
+they miss thread contention and resource sharing effects that dominate real-world
+performance (see mmap+rayon experiment below).
 
 ## Experiments tried
 
