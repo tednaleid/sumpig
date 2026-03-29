@@ -579,3 +579,199 @@ fn compare_depth_mismatch_same_root() {
         .success()
         .stdout(predicate::str::contains("identical"));
 }
+
+// --- Fast mode integration tests ---
+
+#[test]
+fn fast_mode_produces_valid_manifest() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let output_file = dir.path().join("fast.txt");
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &output_file.to_string_lossy(),
+            "--fast",
+        ])
+        .assert()
+        .success();
+
+    let manifest = fs::read_to_string(&output_file).unwrap();
+    assert!(manifest.contains("# mode: fast\n"));
+    assert!(manifest.contains("# version: 2\n"));
+    assert!(manifest.contains("# total_files: 3\n"));
+}
+
+#[test]
+fn fast_mode_deterministic() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let out1 = dir.path().join("fast1.txt");
+    let out2 = dir.path().join("fast2.txt");
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &out1.to_string_lossy(),
+            "--fast",
+        ])
+        .assert()
+        .success();
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &out2.to_string_lossy(),
+            "--fast",
+        ])
+        .assert()
+        .success();
+
+    let m1 = fs::read_to_string(&out1).unwrap();
+    let m2 = fs::read_to_string(&out2).unwrap();
+    assert_eq!(content_lines(&m1), content_lines(&m2));
+}
+
+#[test]
+fn fast_mode_detects_file_modification() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let before = dir.path().join("before.txt");
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &before.to_string_lossy(),
+            "--fast",
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    // Modify a file (changes both size and mtime).
+    fs::write(tree.join("file_a.txt"), "modified content that is longer").unwrap();
+
+    let after = dir.path().join("after.txt");
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &after.to_string_lossy(),
+            "--fast",
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    let m1 = fs::read_to_string(&before).unwrap();
+    let m2 = fs::read_to_string(&after).unwrap();
+    assert_ne!(extract_root_hash(&m1), extract_root_hash(&m2));
+}
+
+#[test]
+fn fast_and_content_produce_different_hashes() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let fast_out = dir.path().join("fast.txt");
+    let content_out = dir.path().join("content.txt");
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &fast_out.to_string_lossy(),
+            "--fast",
+            "--quiet",
+        ])
+        .assert()
+        .success();
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &content_out.to_string_lossy(),
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    let fast_manifest = fs::read_to_string(&fast_out).unwrap();
+    let content_manifest = fs::read_to_string(&content_out).unwrap();
+
+    assert!(fast_manifest.contains("# mode: fast\n"));
+    assert!(content_manifest.contains("# mode: content\n"));
+    assert_ne!(
+        extract_root_hash(&fast_manifest),
+        extract_root_hash(&content_manifest)
+    );
+}
+
+#[test]
+fn compare_mode_mismatch_warns() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let fast_out = dir.path().join("fast.txt");
+    let content_out = dir.path().join("content.txt");
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &fast_out.to_string_lossy(),
+            "--fast",
+            "--quiet",
+        ])
+        .assert()
+        .success();
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &content_out.to_string_lossy(),
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    sumpig()
+        .args([
+            "compare",
+            &fast_out.to_string_lossy(),
+            &content_out.to_string_lossy(),
+        ])
+        .assert()
+        .stderr(predicate::str::contains("mode mismatch"));
+}
+
+#[test]
+fn default_mode_is_content() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let output_file = dir.path().join("manifest.txt");
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &output_file.to_string_lossy(),
+        ])
+        .assert()
+        .success();
+
+    let manifest = fs::read_to_string(&output_file).unwrap();
+    assert!(manifest.contains("# mode: content\n"));
+}

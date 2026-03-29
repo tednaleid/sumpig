@@ -42,6 +42,10 @@ enum Commands {
         /// Suppress progress bars and summary output
         #[arg(short, long)]
         quiet: bool,
+
+        /// Use file metadata (size + mtime) instead of content hashing
+        #[arg(long)]
+        fast: bool,
     },
     /// Compare two fingerprint manifests and report differences
     Compare {
@@ -63,9 +67,17 @@ fn main() {
             jobs,
             no_ignore,
             quiet,
+            fast,
         } => {
-            if let Err(e) = run_fingerprint(&path, depth, output.as_deref(), jobs, no_ignore, quiet)
-            {
+            if let Err(e) = run_fingerprint(
+                &path,
+                depth,
+                output.as_deref(),
+                jobs,
+                no_ignore,
+                quiet,
+                fast,
+            ) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             }
@@ -109,6 +121,12 @@ fn run_compare(
             header1.path, header2.path,
         );
     }
+    if header1.mode != header2.mode {
+        eprintln!(
+            "warning: mode mismatch ({} vs {}), results may not be meaningful",
+            header1.mode, header2.mode,
+        );
+    }
 
     let label1 = format!("{} ({})", header1.host, header1.date);
     let label2 = format!("{} ({})", header2.host, header2.date);
@@ -134,6 +152,7 @@ fn run_fingerprint(
     jobs: Option<usize>,
     no_ignore: bool,
     quiet: bool,
+    fast: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
 
@@ -199,7 +218,11 @@ fn run_fingerprint(
         .into_par_iter()
         .map(|e| {
             let full_path = canonical.join(&e.path);
-            let file_hash = sumpig::hash::hash_file(&full_path);
+            let file_hash = if fast {
+                sumpig::hash::hash_file_metadata(&full_path)
+            } else {
+                sumpig::hash::hash_file(&full_path)
+            };
             if let Some(pb) = &pb {
                 pb.inc(1);
             }
@@ -233,6 +256,7 @@ fn run_fingerprint(
         total_files: file_count,
         total_dirs,
         root_hash: sumpig::hash::hash_to_hex(&root_hash),
+        mode: if fast { "fast" } else { "content" }.to_string(),
     };
 
     // Determine output path.

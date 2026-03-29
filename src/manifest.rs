@@ -10,6 +10,8 @@ pub struct ManifestHeader {
     pub total_files: usize,
     pub total_dirs: usize,
     pub root_hash: String,
+    /// Fingerprint mode: "content" (default) or "fast" (metadata-only).
+    pub mode: String,
 }
 
 /// A parsed manifest entry (from a fingerprint file).
@@ -35,6 +37,7 @@ pub fn write_manifest<W: io::Write>(
     writeln!(writer, "# total_files: {}", header.total_files)?;
     writeln!(writer, "# total_dirs: {}", header.total_dirs)?;
     writeln!(writer, "# root: {}", header.root_hash)?;
+    writeln!(writer, "# mode: {}", header.mode)?;
     for entry in entries {
         let type_tag = match entry.entry_type {
             EntryType::Blake3 => "blake3",
@@ -60,6 +63,7 @@ pub fn parse_manifest<R: io::BufRead>(
         total_files: 0,
         total_dirs: 0,
         root_hash: String::new(),
+        mode: "content".to_string(),
     };
     let mut entries = Vec::new();
 
@@ -94,6 +98,7 @@ pub fn parse_manifest<R: io::BufRead>(
                         })?;
                     }
                     "root" => header.root_hash = value.to_string(),
+                    "mode" => header.mode = value.to_string(),
                     _ => {} // Unknown header fields are ignored.
                 }
             }
@@ -223,6 +228,7 @@ mod tests {
             total_files: 3,
             total_dirs: 2,
             root_hash: "a1b2c3d4e5f67890a1b2c3d4e5f67890".to_string(),
+            mode: "content".to_string(),
         }
     }
 
@@ -263,6 +269,7 @@ mod tests {
         assert_eq!(parsed_header.total_files, 3);
         assert_eq!(parsed_header.total_dirs, 2);
         assert_eq!(parsed_header.root_hash, "a1b2c3d4e5f67890a1b2c3d4e5f67890");
+        assert_eq!(parsed_header.mode, "content");
 
         assert_eq!(parsed_entries.len(), 3);
     }
@@ -353,6 +360,7 @@ mod tests {
         assert!(output.contains("# depth: 6\n"));
 
         assert!(output.contains("# version: 2\n"));
+        assert!(output.contains("# mode: content\n"));
 
         // Data lines use tab separator.
         assert!(output.contains("blake3:deadbeefdeadbeefdeadbeefdeadbeef\t./file.txt\n"));

@@ -1,6 +1,24 @@
 # Performance Notes
 
-## Current approach
+## Fast mode (--fast)
+
+The `--fast` flag hashes file metadata (size + modification time) instead of reading file
+contents. This skips all file I/O beyond stat calls, which is dramatically faster:
+
+| Mode | Wall clock | User CPU | System CPU |
+|------|-----------|----------|-----------|
+| `--fast` (metadata) | 5.3s | 0.9s | 18.9s |
+| content (default) | 28.1s | 65.1s | 41.0s |
+
+5.3x faster on a ~40K file directory tree. The Merkle tree structure is identical -- only
+the leaf hashes differ (metadata hash vs content hash). The manifest header records the
+mode (`# mode: fast` vs `# mode: content`) and compare warns if modes differ.
+
+Fast mode is suitable for quick iCloud sync verification where you want to detect file
+additions, deletions, and size/timestamp changes without reading every file. It cannot
+detect corruption that preserves file size and modification time.
+
+## Content mode (default approach)
 
 sumpig uses two levels of parallelism:
 
