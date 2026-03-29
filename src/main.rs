@@ -46,6 +46,10 @@ enum Commands {
         /// Use file metadata (size + mtime) instead of content hashing
         #[arg(long)]
         fast: bool,
+
+        /// Tag the output file with a name (or timestamp if no name given)
+        #[arg(long, num_args = 0..=1, default_missing_value = "")]
+        tag: Option<String>,
     },
     /// Compare two fingerprint manifests and report differences
     Compare {
@@ -68,16 +72,18 @@ fn main() {
             no_ignore,
             quiet,
             fast,
+            tag,
         } => {
-            if let Err(e) = run_fingerprint(
-                &path,
+            if let Err(e) = run_fingerprint(&FingerprintOptions {
+                path: &path,
                 depth,
-                output.as_deref(),
+                output: output.as_deref(),
                 jobs,
                 no_ignore,
                 quiet,
                 fast,
-            ) {
+                tag: tag.as_deref(),
+            }) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             }
@@ -145,27 +151,31 @@ fn run_compare(
     Ok(result.identical)
 }
 
-fn run_fingerprint(
-    path: &std::path::Path,
+struct FingerprintOptions<'a> {
+    path: &'a std::path::Path,
     depth: usize,
-    output: Option<&std::path::Path>,
+    output: Option<&'a std::path::Path>,
     jobs: Option<usize>,
     no_ignore: bool,
     quiet: bool,
     fast: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+    tag: Option<&'a str>,
+}
+
+fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
 
     // Validate the path.
-    let canonical = path
+    let canonical = opts
+        .path
         .canonicalize()
-        .map_err(|e| format!("{}: {e}", path.display()))?;
+        .map_err(|e| format!("{}: {e}", opts.path.display()))?;
     if !canonical.is_dir() {
-        return Err(format!("{}: not a directory", path.display()).into());
+        return Err(format!("{}: not a directory", opts.path.display()).into());
     }
 
     // Walk the directory tree.
-    let spinner = if !quiet {
+    let spinner = if !opts.quiet {
         let sp = ProgressBar::new_spinner();
         sp.set_style(ProgressStyle::with_template("  {spinner} Scanning...").unwrap());
         sp.enable_steady_tick(Duration::from_millis(120));
@@ -175,8 +185,8 @@ fn run_fingerprint(
     };
 
     let walk_options = sumpig::walk::WalkOptions {
-        use_default_ignores: !no_ignore,
-        num_threads: jobs.unwrap_or(0),
+        use_default_ignores: !opts.no_ignore,
+        num_threads: opts.jobs.unwrap_or(0),
     };
     let walk_result = sumpig::walk::walk_directory(&canonical, &walk_options);
 
@@ -200,7 +210,7 @@ fn run_fingerprint(
     let file_count = files_to_hash.len();
 
     // Hash files in parallel with progress bar.
-    let pb = if !quiet {
+    let pb = if !opts.quiet {
         let pb = ProgressBar::new(file_count as u64);
         pb.set_style(
             ProgressStyle::with_template(
@@ -218,7 +228,7 @@ fn run_fingerprint(
         .into_par_iter()
         .map(|e| {
             let full_path = canonical.join(&e.path);
-            let file_hash = if fast {
+            let file_hash = if opts.fast {
                 sumpig::hash::hash_file_metadata(&full_path)
             } else {
                 sumpig::hash::hash_file(&full_path)
@@ -240,7 +250,7 @@ fn run_fingerprint(
     sorted_entries.sort_by(|a, b| a.0.cmp(&b.0));
 
     // Compute Merkle tree and produce flat entries.
-    let (flat_entries, root_hash) = sumpig::merkle::compute_manifest(&sorted_entries, depth);
+    let (flat_entries, root_hash) = sumpig::merkle::compute_manifest(&sorted_entries, opts.depth);
 
     let total_dirs = flat_entries
         .iter()
@@ -251,22 +261,31 @@ fn run_fingerprint(
     let header = sumpig::manifest::ManifestHeader {
         host: sumpig::manifest::get_hostname(),
         path: canonical.to_string_lossy().into_owned(),
-        depth,
+        depth: opts.depth,
         date: sumpig::manifest::get_iso_date(),
         total_files: file_count,
         total_dirs,
         root_hash: sumpig::hash::hash_to_hex(&root_hash),
-        mode: if fast { "fast" } else { "content" }.to_string(),
+        mode: if opts.fast { "fast" } else { "content" }.to_string(),
     };
 
     // Determine output path.
-    let output_path = match output {
+    let output_path = match opts.output {
         Some(p) => p.to_path_buf(),
         None => {
             let sync_dir = canonical.join(".sumpig-fingerprints");
             fs::create_dir_all(&sync_dir)?;
             let hostname = sumpig::manifest::get_hostname();
-            sync_dir.join(format!("{hostname}.txt"))
+            let filename = match opts.tag {
+                Some("") => {
+                    // --tag with no value: use timestamp.
+                    let ts = header.date.replace(':', "-");
+                    format!("{hostname}-{ts}.txt")
+                }
+                Some(name) => format!("{hostname}-{name}.txt"),
+                None => format!("{hostname}.txt"),
+            };
+            sync_dir.join(filename)
         }
     };
 
@@ -275,7 +294,7 @@ fn run_fingerprint(
     sumpig::manifest::write_manifest(&mut file, &header, &flat_entries)?;
 
     // Print summary to stderr.
-    if !quiet {
+    if !opts.quiet {
         let elapsed = start.elapsed();
         eprintln!(
             "{} files, {} dirs in {:.2}s | root: {} | {}",

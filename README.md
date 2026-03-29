@@ -45,6 +45,28 @@ Options:
 - `--no-ignore` -- disable the default ignore list (node_modules, target, .venv, etc.).
 - `--quiet` -- suppress progress bars and summary output.
 - `--fast` -- use file metadata (size + modification time) instead of reading file contents.
+- `--tag [NAME]` -- tag the output file with a name, or a timestamp if no name is given.
+
+### Tracking changes over time
+
+By default, sumpig overwrites the fingerprint file on each run. Use `--tag` to keep
+a history of fingerprints and compare them to see what changed:
+
+```
+sumpig fingerprint --tag ~/Documents              # creates <hostname>-2026-03-29T15-30-00Z.txt
+sumpig fingerprint --tag before-upgrade ~/Documents  # creates <hostname>-before-upgrade.txt
+```
+
+Then compare any two tagged fingerprints:
+
+```
+sumpig compare .sumpig-fingerprints/cardinal-before-upgrade.txt \
+               .sumpig-fingerprints/cardinal-after-upgrade.txt
+```
+
+Without `--tag`, the default `<hostname>.txt` filename is used, which overwrites on each
+run. This is useful when comparing the same directory across two machines (each machine
+writes its own hostname file into the same iCloud-synced directory).
 
 ### Fast mode
 

@@ -775,3 +775,61 @@ fn default_mode_is_content() {
     let manifest = fs::read_to_string(&output_file).unwrap();
     assert!(manifest.contains("# mode: content\n"));
 }
+
+// --- Tag integration tests ---
+
+#[test]
+fn tag_with_no_value_produces_timestamped_file() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+
+    sumpig()
+        .args(["fingerprint", &tree.to_string_lossy(), "--tag"])
+        .assert()
+        .success();
+
+    let sync_dir = tree.join(".sumpig-fingerprints");
+    let files: Vec<_> = fs::read_dir(&sync_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    assert_eq!(files.len(), 1);
+
+    // Filename should contain a timestamp pattern like "2026-03-29T".
+    let filename = files[0].file_name();
+    let name = filename.to_string_lossy();
+    assert!(
+        name.contains("T") && name.contains("-") && name.ends_with("Z.txt"),
+        "expected timestamped filename, got: {name}"
+    );
+}
+
+#[test]
+fn tag_with_custom_name() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--tag",
+            "before-upgrade",
+        ])
+        .assert()
+        .success();
+
+    let sync_dir = tree.join(".sumpig-fingerprints");
+    let files: Vec<_> = fs::read_dir(&sync_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    assert_eq!(files.len(), 1);
+
+    let filename = files[0].file_name();
+    let name = filename.to_string_lossy();
+    assert!(
+        name.ends_with("-before-upgrade.txt"),
+        "expected custom tag in filename, got: {name}"
+    );
+}
