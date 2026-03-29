@@ -2,8 +2,8 @@
 setup:
     rustup component add clippy rustfmt
 
-# Run all checks (test + lint)
-check: test lint
+# Run all checks (test + lint + format)
+check: test lint fmt-check
 
 # Run all tests
 test:
