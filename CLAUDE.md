@@ -17,7 +17,7 @@ are identical by computing and comparing BLAKE3 hash trees.
 
 Single crate with library + binary targets. Modules:
 
-- `hash.rs` -- BLAKE3 file hashing, dataless detection, error recording
+- `hash.rs` -- BLAKE3 file hashing, metadata hashing (--fast), dataless detection, error recording
 - `walk.rs` -- parallel directory walking with configurable skip list
 - `merkle.rs` -- streaming Merkle tree computation (no in-memory tree)
 - `manifest.rs` -- manifest file writing and parsing
@@ -26,16 +26,19 @@ Single crate with library + binary targets. Modules:
 
 ## Development
 
-All commands go through `just`:
+All build, test, lint, format, and bench commands MUST go through the justfile. Never run
+cargo directly. If a recipe doesn't exist for what you need, add one to the justfile.
 
 ```
 just setup    # install required toolchain components (clippy, rustfmt)
-just check    # run tests + lint
+just check    # run tests + lint + format check
 just test     # run all tests
+just test-one NAME  # run a specific test by name
 just lint     # run clippy
 just build    # build release binary
-just bench    # run benchmarks
+just bench    # run benchmarks (accepts args, e.g. just bench --bench hash_bench)
 just fmt      # format code
+just install  # install release binary to ~/.cargo/bin
 ```
 
 ## Testing conventions
