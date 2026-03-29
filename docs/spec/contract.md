@@ -30,8 +30,8 @@ The cost of undetected sync failures is high: working on corrupted repos, losing
 - [ ] Unreadable files (permission denied, I/O error) recorded as `error:<reason>` entries
 - [ ] Compare flags dataless and error entries as warnings
 - [ ] `--depth N` controls output granularity without affecting hash correctness (same root hash at any depth)
-- [ ] `--no-skip` overrides the default skip list for full verification
-- [ ] Default output writes to `<path>/.sync-fingerprints/<hostname>.txt`
+- [ ] `--no-ignore` overrides the default ignore list for full verification
+- [ ] Default output writes to `<path>/.sumpig-fingerprints/<hostname>.txt`
 - [ ] All unit tests pass and run in under 5 seconds total
 - [ ] All integration tests pass and run in under 10 seconds total
 - [ ] Criterion benchmarks establish baselines for hash throughput, walk speed, and tree construction
@@ -44,7 +44,7 @@ The cost of undetected sync failures is high: working on corrupted repos, losing
 - `fingerprint` subcommand: parallel directory walk, BLAKE3 hashing, Merkle tree construction, manifest output
 - `compare` subcommand: two-manifest comparison with Merkle skip, structured diff report
 - Configurable output depth (`--depth N`)
-- Configurable skip list (`--no-skip` to disable defaults)
+- Configurable ignore list (`--no-ignore` to disable defaults)
 - Configurable output path (`--output FILE`)
 - Configurable parallelism (`--jobs N`)
 - Dataless file detection (macOS SF_DATALESS)
@@ -59,17 +59,17 @@ The cost of undetected sync failures is high: working on corrupted repos, losing
 ### Out of Scope
 
 - Daemon mode or watch mode -- periodic runs via cron/launchd are simpler and more trustworthy
-- Network transfer of fingerprint files -- iCloud syncs the `.sync-fingerprints/` directory naturally
+- Network transfer of fingerprint files -- iCloud syncs the `.sumpig-fingerprints/` directory naturally
 - GUI or TUI -- this is a CLI tool
 - Cross-platform support beyond macOS -- primary use case is Mac-to-Mac; Linux/Windows can be added later if needed
-- Custom skip list configuration (beyond --no-skip) -- the defaults cover the common cases; full customization adds complexity for little value in v1
+- Custom ignore list configuration (beyond --no-ignore) -- the defaults cover the common cases; full customization adds complexity for little value in v1
 
 ### Future Considerations
 
 - GitHub Actions CI pipeline (test, lint, bench on PR)
 - `just bump` and `just retag` recipes for release tagging
 - `sumpig watch` mode for continuous monitoring
-- Custom skip list via config file or `--skip` flag
+- Custom ignore list via config file or `--skip` flag
 - `sumpig compare --dir` to auto-detect fingerprint files in a directory
 - Homebrew formula for distribution
 - Shell completions (bash, zsh, fish)

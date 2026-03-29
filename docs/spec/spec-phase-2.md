@@ -184,8 +184,8 @@ just test
 
 # Quick smoke test: compare a manifest against itself
 just run-fingerprint /tmp/test-dir
-cp /tmp/test-dir/.sync-fingerprints/*.txt /tmp/copy.txt
-just run-compare /tmp/test-dir/.sync-fingerprints/*.txt /tmp/copy.txt
+cp /tmp/test-dir/.sumpig-fingerprints/*.txt /tmp/copy.txt
+just run-compare /tmp/test-dir/.sumpig-fingerprints/*.txt /tmp/copy.txt
 echo $?  # should be 0
 ```
 

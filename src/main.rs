@@ -27,7 +27,7 @@ enum Commands {
         #[arg(short, long, default_value = "6")]
         depth: usize,
 
-        /// Output file (default: <path>/.sync-fingerprints/<hostname>.txt)
+        /// Output file (default: <path>/.sumpig-fingerprints/<hostname>.txt)
         #[arg(short, long)]
         output: Option<PathBuf>,
 
@@ -35,15 +35,21 @@ enum Commands {
         #[arg(short, long)]
         jobs: Option<usize>,
 
-        /// Disable default skip list (hash everything)
+        /// Disable default ignore list (hash everything)
         #[arg(long)]
-        no_skip: bool,
+        no_ignore: bool,
 
         /// Suppress progress bars and summary output
         #[arg(short, long)]
         quiet: bool,
     },
-    // Compare subcommand added in Phase 2
+    /// Compare two fingerprint manifests and report differences
+    Compare {
+        /// First fingerprint file
+        file1: PathBuf,
+        /// Second fingerprint file
+        file2: PathBuf,
+    },
 }
 
 fn main() {
@@ -55,16 +61,67 @@ fn main() {
             depth,
             output,
             jobs,
-            no_skip,
+            no_ignore,
             quiet,
         } => {
-            if let Err(e) = run_fingerprint(&path, depth, output.as_deref(), jobs, no_skip, quiet)
-            {
+            if let Err(e) = run_fingerprint(&path, depth, output.as_deref(), jobs, no_ignore, quiet) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             }
         }
+        Commands::Compare { file1, file2 } => match run_compare(&file1, &file2) {
+            Ok(identical) => {
+                if !identical {
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(2);
+            }
+        },
     }
+}
+
+fn run_compare(
+    file1: &std::path::Path,
+    file2: &std::path::Path,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let reader1 = std::io::BufReader::new(fs::File::open(file1)?);
+    let reader2 = std::io::BufReader::new(fs::File::open(file2)?);
+
+    let (header1, entries1) = sumpig::manifest::parse_manifest(reader1)
+        .map_err(|e| format!("{}: {e}", file1.display()))?;
+    let (header2, entries2) = sumpig::manifest::parse_manifest(reader2)
+        .map_err(|e| format!("{}: {e}", file2.display()))?;
+
+    // Warn about mismatches that might confuse the user.
+    if header1.depth != header2.depth {
+        eprintln!(
+            "warning: depth mismatch ({} vs {}), comparing available entries",
+            header1.depth, header2.depth,
+        );
+    }
+    if header1.path != header2.path {
+        eprintln!(
+            "warning: different root paths ({} vs {})",
+            header1.path, header2.path,
+        );
+    }
+
+    let result =
+        sumpig::compare::compare_manifests(&entries1, &entries2, &header1.host, &header2.host);
+
+    let report = sumpig::compare::format_report(&result);
+    print!("{report}");
+
+    // Print warnings to stderr.
+    if !result.dataless_warnings.is_empty() || !result.error_warnings.is_empty() {
+        let warn_count = result.dataless_warnings.len() + result.error_warnings.len();
+        eprintln!("{warn_count} entries could not be fully verified (dataless/error)");
+    }
+
+    Ok(result.identical)
 }
 
 fn run_fingerprint(
@@ -72,7 +129,7 @@ fn run_fingerprint(
     depth: usize,
     output: Option<&std::path::Path>,
     jobs: Option<usize>,
-    no_skip: bool,
+    no_ignore: bool,
     quiet: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
@@ -88,9 +145,7 @@ fn run_fingerprint(
     // Walk the directory tree.
     let spinner = if !quiet {
         let sp = ProgressBar::new_spinner();
-        sp.set_style(
-            ProgressStyle::with_template("  {spinner} Scanning...").unwrap(),
-        );
+        sp.set_style(ProgressStyle::with_template("  {spinner} Scanning...").unwrap());
         sp.enable_steady_tick(Duration::from_millis(120));
         Some(sp)
     } else {
@@ -98,7 +153,7 @@ fn run_fingerprint(
     };
 
     let walk_options = sumpig::walk::WalkOptions {
-        skip_defaults: !no_skip,
+        use_default_ignores: !no_ignore,
         num_threads: jobs.unwrap_or(0),
     };
     let walk_entries = sumpig::walk::walk_directory(&canonical, &walk_options);
@@ -108,10 +163,8 @@ fn run_fingerprint(
     }
 
     // Separate files from directories for hashing.
-    let files_to_hash: Vec<sumpig::walk::WalkEntry> = walk_entries
-        .into_iter()
-        .filter(|e| !e.is_dir)
-        .collect();
+    let files_to_hash: Vec<sumpig::walk::WalkEntry> =
+        walk_entries.into_iter().filter(|e| !e.is_dir).collect();
     let file_count = files_to_hash.len();
 
     // Hash files in parallel with progress bar.
@@ -172,7 +225,7 @@ fn run_fingerprint(
     let output_path = match output {
         Some(p) => p.to_path_buf(),
         None => {
-            let sync_dir = canonical.join(".sync-fingerprints");
+            let sync_dir = canonical.join(".sumpig-fingerprints");
             fs::create_dir_all(&sync_dir)?;
             let hostname = sumpig::manifest::get_hostname();
             sync_dir.join(format!("{hostname}.txt"))

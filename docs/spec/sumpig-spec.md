@@ -24,9 +24,9 @@ Recursively walks `<path>`, hashes every file with BLAKE3, computes Merkle direc
 and writes a manifest file.
 
 - `--depth N` (default: 6) -- controls output granularity, NOT hashing depth (see below)
-- `--output FILE` -- write manifest here; default: `<path>/.sync-fingerprints/<hostname>.txt`
+- `--output FILE` -- write manifest here; default: `<path>/.sumpig-fingerprints/<hostname>.txt`
 - `--jobs N` -- worker thread count; default: number of CPU cores
-- Creates the `.sync-fingerprints/` directory if it does not exist
+- Creates the `.sumpig-fingerprints/` directory if it does not exist
 
 ### compare
 
@@ -147,9 +147,9 @@ Directories are identifiable by their trailing `/`.
 - Simple to parse (split on two spaces)
 - Same convention as sha256sum, b3sum, md5sum
 
-## What to skip
+## What to ignore
 
-### Directories to skip (not hashed, not listed)
+### Directories to ignore (not hashed, not listed)
 
 - `node_modules` -- reproducible from package.json
 - `.venv`, `venv` -- reproducible from requirements
@@ -158,14 +158,14 @@ Directories are identifiable by their trailing `/`.
 - `build`, `dist` -- build output
 - `.Trash` -- macOS trash
 - `*.nosync` -- explicitly excluded from iCloud sync
-- `.sync-fingerprints` -- sumpig's own output directory
+- `.sumpig-fingerprints` -- sumpig's own output directory
 
-### Files to skip
+### Files to ignore
 
 - `.DS_Store` -- macOS Finder metadata, differs per machine
 - `.localized` -- macOS localization markers
 
-### What NOT to skip
+### What NOT to ignore
 
 - `.git` directories -- MUST be included. iCloud sync can corrupt git objects, and detecting
   this is one of the primary motivations for this tool.
@@ -214,7 +214,7 @@ sumpig/
   Cargo.toml
   src/
     main.rs          # CLI entry point, clap subcommand routing
-    walk.rs          # directory walking with skip logic, jwalk configuration
+    walk.rs          # directory walking with ignore logic, jwalk configuration
     hash.rs          # file hashing (blake3), dataless detection, buffer management
     merkle.rs        # Merkle tree construction: DirNode, bottom-up hash computation
     manifest.rs      # output format: writing and parsing manifest files
@@ -259,7 +259,7 @@ struct ManifestEntry {
 
 ```
 fingerprint command:
-  1. jwalk parallel walk (respecting skip list)
+  1. jwalk parallel walk (respecting ignore list)
      --> stream of (path, metadata) entries
   2. rayon par_iter: hash each file with blake3
      --> Vec<(path, hash)>
@@ -334,10 +334,10 @@ Each module should have `#[cfg(test)] mod tests` with focused tests:
 - Dataless entries produce warnings
 
 **walk.rs tests:**
-- Skip list: node_modules, .DS_Store, etc. are excluded
+- Ignore list: node_modules, .DS_Store, etc. are excluded
 - .git directories ARE included
 - Symlinks are not followed
-- .sync-fingerprints directory is excluded
+- .sumpig-fingerprints directory is excluded
 
 ### Integration tests (tests/integration.rs)
 
@@ -351,7 +351,7 @@ compiled binary and assert on stdout/stderr/exit code.
 - `compare` two different manifests: exit 1, reports exact differences
 - `--depth 1` vs `--depth 6`: same root hash, different number of entries
 - `--output` flag writes to specified path
-- Default output goes to `.sync-fingerprints/<hostname>.txt`
+- Default output goes to `.sumpig-fingerprints/<hostname>.txt`
 - Progress output goes to stderr (not mixed with manifest on stdout)
 
 ### Criterion benchmarks (benches/)
@@ -363,7 +363,7 @@ compiled binary and assert on stdout/stderr/exit code.
 
 **walk_bench.rs:**
 - Benchmark directory walking speed on a synthetic tree (create with tempdir)
-- Measure with/without skip filtering
+- Measure with/without ignore filtering
 - Compare sequential vs parallel walking
 
 **merkle_bench.rs:**

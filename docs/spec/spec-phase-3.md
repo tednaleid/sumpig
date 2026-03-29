@@ -107,7 +107,7 @@ criterion_main!(benches);
 
 ### 3. walk_bench.rs - Directory Walking Speed
 
-**Overview**: Benchmark directory traversal speed on synthetic trees of various sizes. Measures the overhead of walking + skip filtering independent of hashing.
+**Overview**: Benchmark directory traversal speed on synthetic trees of various sizes. Measures the overhead of walking + ignore filtering independent of hashing.
 
 ```rust
 use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
@@ -126,7 +126,7 @@ fn bench_walk(c: &mut Criterion) {
     for (name, num_dirs, files_per_dir) in sizes {
         let dir = create_synthetic_tree(*num_dirs, *files_per_dir);
         group.bench_with_input(BenchmarkId::new("parallel", name), &dir, |b, dir| {
-            let options = WalkOptions { skip_defaults: true, num_threads: 0 };
+            let options = WalkOptions { use_default_ignores: true, num_threads: 0 };
             b.iter(|| walk::walk_directory(dir.path(), &options));
         });
     }
@@ -138,11 +138,11 @@ fn bench_walk_skip_filtering(c: &mut Criterion) {
     let dir = create_tree_with_skippable_dirs();
     let mut group = c.benchmark_group("walk_skip");
     group.bench_function("with_skip", |b| {
-        let options = WalkOptions { skip_defaults: true, num_threads: 0 };
+        let options = WalkOptions { use_default_ignores: true, num_threads: 0 };
         b.iter(|| walk::walk_directory(dir.path(), &options));
     });
-    group.bench_function("no_skip", |b| {
-        let options = WalkOptions { skip_defaults: false, num_threads: 0 };
+    group.bench_function("no_ignore", |b| {
+        let options = WalkOptions { use_default_ignores: false, num_threads: 0 };
         b.iter(|| walk::walk_directory(dir.path(), &options));
     });
     group.finish();
@@ -156,7 +156,7 @@ criterion_main!(benches);
 
 - Create fixture trees once (outside the benchmark loop) using tempfile::TempDir
 - Files contain minimal content (1 byte) -- we're measuring walk speed, not I/O
-- Include a skip filtering benchmark to measure the overhead/savings of the skip list
+- Include a ignore filtering benchmark to measure the overhead/savings of the skip list
 - Cap at 10K files for routine runs. Larger trees can be benchmarked manually.
 
 **Benchmarks**:
@@ -164,8 +164,8 @@ criterion_main!(benches);
 - `walk_directory/parallel/100_files` -- small project scale
 - `walk_directory/parallel/1K_files` -- medium project scale
 - `walk_directory/parallel/10K_files` -- large project scale
-- `walk_skip/with_skip` -- skip filtering overhead
-- `walk_skip/no_skip` -- baseline without filtering
+- `walk_skip/with_skip` -- ignore filtering overhead
+- `walk_skip/no_ignore` -- baseline without filtering
 
 ### 4. merkle_bench.rs - Streaming Merkle Computation
 

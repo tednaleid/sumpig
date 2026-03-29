@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 pub struct WalkOptions {
-    /// If true, apply the default skip list. If false (--no-skip), hash everything.
-    pub skip_defaults: bool,
+    /// If true, apply the default ignore list. If false (--no-ignore), hash everything.
+    pub use_default_ignores: bool,
     /// Number of threads for parallel walking. 0 means use rayon default (num CPUs).
     pub num_threads: usize,
 }
@@ -14,8 +14,8 @@ pub struct WalkEntry {
     pub is_symlink: bool,
 }
 
-/// Directories to skip (not hashed, not listed).
-pub const SKIP_DIRS: &[&str] = &[
+/// Directories to ignore (not hashed, not listed).
+pub const IGNORE_DIRS: &[&str] = &[
     "node_modules",
     ".venv",
     "venv",
@@ -24,19 +24,19 @@ pub const SKIP_DIRS: &[&str] = &[
     "build",
     "dist",
     ".Trash",
-    ".sync-fingerprints",
+    ".sumpig-fingerprints",
 ];
 
-/// Files to skip.
-pub const SKIP_FILES: &[&str] = &[".DS_Store", ".localized"];
+/// Files to ignore.
+pub const IGNORE_FILES: &[&str] = &[".DS_Store", ".localized"];
 
-/// File extensions to skip.
-pub const SKIP_EXTENSIONS: &[&str] = &["nosync"];
+/// File extensions to ignore.
+pub const IGNORE_EXTENSIONS: &[&str] = &["nosync"];
 
 /// Walk a directory tree, returning sorted entries.
-/// Applies skip list unless options.skip_defaults is false.
+/// Applies default ignore list unless options.use_default_ignores is false.
 pub fn walk_directory(root: &Path, options: &WalkOptions) -> Vec<WalkEntry> {
-    let skip = options.skip_defaults;
+    let ignore = options.use_default_ignores;
 
     let parallelism = if options.num_threads == 1 {
         jwalk::Parallelism::Serial
@@ -53,7 +53,7 @@ pub fn walk_directory(root: &Path, options: &WalkOptions) -> Vec<WalkEntry> {
         .skip_hidden(false)
         .follow_links(false)
         .process_read_dir(move |_depth, _path, _state, children| {
-            if skip {
+            if ignore {
                 children.retain(|entry_result| {
                     let Ok(entry) = entry_result else {
                         return false;
@@ -62,18 +62,18 @@ pub fn walk_directory(root: &Path, options: &WalkOptions) -> Vec<WalkEntry> {
 
                     let ft = entry.file_type();
 
-                    // Skip directories by name.
-                    if ft.is_dir() && SKIP_DIRS.contains(&name.as_ref()) {
+                    // Ignore directories by name.
+                    if ft.is_dir() && IGNORE_DIRS.contains(&name.as_ref()) {
                         return false;
                     }
 
-                    // Skip files by name or extension.
+                    // Ignore files by name or extension.
                     if ft.is_file() {
-                        if SKIP_FILES.contains(&name.as_ref()) {
+                        if IGNORE_FILES.contains(&name.as_ref()) {
                             return false;
                         }
                         if let Some(ext) = Path::new(name.as_ref()).extension()
-                            && SKIP_EXTENSIONS.contains(&ext.to_string_lossy().as_ref())
+                            && IGNORE_EXTENSIONS.contains(&ext.to_string_lossy().as_ref())
                         {
                             return false;
                         }
@@ -123,14 +123,14 @@ mod tests {
 
     fn default_options() -> WalkOptions {
         WalkOptions {
-            skip_defaults: true,
+            use_default_ignores: true,
             num_threads: 1,
         }
     }
 
-    fn no_skip_options() -> WalkOptions {
+    fn no_ignore_options() -> WalkOptions {
         WalkOptions {
-            skip_defaults: false,
+            use_default_ignores: false,
             num_threads: 1,
         }
     }
@@ -186,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn walk_skips_node_modules() {
+    fn walk_ignores_node_modules() {
         let dir = TempDir::new().unwrap();
         fs::create_dir(dir.path().join("node_modules")).unwrap();
         fs::write(dir.path().join("node_modules/package.json"), "{}").unwrap();
@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn walk_skips_ds_store() {
+    fn walk_ignores_ds_store() {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join(".DS_Store"), "").unwrap();
         fs::write(dir.path().join("keep.txt"), "keep").unwrap();
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn walk_skips_nosync_extension() {
+    fn walk_ignores_nosync_extension() {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("data.nosync"), "").unwrap();
         fs::write(dir.path().join("keep.txt"), "keep").unwrap();
@@ -223,10 +223,10 @@ mod tests {
     }
 
     #[test]
-    fn walk_skips_sync_fingerprints() {
+    fn walk_ignores_sumpig_fingerprints() {
         let dir = TempDir::new().unwrap();
-        fs::create_dir(dir.path().join(".sync-fingerprints")).unwrap();
-        fs::write(dir.path().join(".sync-fingerprints/host.txt"), "").unwrap();
+        fs::create_dir(dir.path().join(".sumpig-fingerprints")).unwrap();
+        fs::write(dir.path().join(".sumpig-fingerprints/host.txt"), "").unwrap();
         fs::write(dir.path().join("keep.txt"), "keep").unwrap();
 
         let entries = walk_directory(dir.path(), &default_options());
@@ -251,14 +251,14 @@ mod tests {
     }
 
     #[test]
-    fn walk_no_skip_includes_everything() {
+    fn walk_no_ignore_includes_everything() {
         let dir = TempDir::new().unwrap();
         fs::create_dir(dir.path().join("node_modules")).unwrap();
         fs::write(dir.path().join("node_modules/pkg.json"), "{}").unwrap();
         fs::write(dir.path().join(".DS_Store"), "").unwrap();
         fs::write(dir.path().join("keep.txt"), "keep").unwrap();
 
-        let entries = walk_directory(dir.path(), &no_skip_options());
+        let entries = walk_directory(dir.path(), &no_ignore_options());
         let paths: Vec<&str> = entries.iter().map(|e| e.path.to_str().unwrap()).collect();
 
         assert!(paths.contains(&"node_modules"));
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn walk_skips_multiple_default_dirs() {
+    fn walk_ignores_multiple_default_dirs() {
         let dir = TempDir::new().unwrap();
         for skip_dir in &[
             "node_modules",

@@ -32,7 +32,7 @@ TDD throughout: write tests alongside each module. Unit tests use in-module `#[c
 | `src/lib.rs` | Library root, re-exports public modules |
 | `src/main.rs` | CLI entry point, clap subcommand routing |
 | `src/hash.rs` | BLAKE3 file hashing, dataless detection, error recording |
-| `src/walk.rs` | Parallel directory walking with configurable skip list |
+| `src/walk.rs` | Parallel directory walking with configurable ignore list |
 | `src/merkle.rs` | Merkle tree construction, depth-limited serialization |
 | `src/manifest.rs` | Manifest file writing and parsing |
 | `justfile` | Project command runner with recipes for check, test, lint, build, bench, etc. |
@@ -191,13 +191,13 @@ Note: dataless detection is hard to unit test without macOS-specific setup. Test
 
 ### 3. walk.rs - Directory Walking
 
-**Overview**: Parallel directory traversal using jwalk. Configurable skip list with `--no-skip` override. Returns sorted entries with metadata.
+**Overview**: Parallel directory traversal using jwalk. Configurable ignore list with `--no-ignore` override. Returns sorted entries with metadata.
 
 ```rust
 use std::path::{Path, PathBuf};
 
 pub struct WalkOptions {
-    pub skip_defaults: bool,  // true = apply default skip list, false = --no-skip
+    pub use_default_ignores: bool,  // true = apply default ignore list, false = --no-ignore
     pub num_threads: usize,   // 0 = use rayon default (num CPUs)
 }
 
@@ -207,36 +207,36 @@ pub struct WalkEntry {
     pub is_symlink: bool,
 }
 
-/// Default directories to skip (not hashed, not listed)
-pub const SKIP_DIRS: &[&str] = &[
+/// Default directories to ignore (not hashed, not listed)
+pub const IGNORE_DIRS: &[&str] = &[
     "node_modules", ".venv", "venv", "target", "__pycache__",
-    "build", "dist", ".Trash", ".sync-fingerprints",
+    "build", "dist", ".Trash", ".sumpig-fingerprints",
 ];
 
-/// Default files to skip
-pub const SKIP_FILES: &[&str] = &[".DS_Store", ".localized"];
+/// Default files to ignore
+pub const IGNORE_FILES: &[&str] = &[".DS_Store", ".localized"];
 
-/// File extensions to skip
-pub const SKIP_EXTENSIONS: &[&str] = &["nosync"];
+/// File extensions to ignore
+pub const IGNORE_EXTENSIONS: &[&str] = &["nosync"];
 
 /// Walk a directory tree, returning sorted entries.
-/// Applies skip list unless options.skip_defaults is false.
+/// Applies ignore list unless options.use_default_ignores is false.
 pub fn walk_directory(root: &Path, options: &WalkOptions) -> Vec<WalkEntry> { ... }
 ```
 
 **Key decisions**:
 
-- jwalk's `process_read_dir` callback handles skip filtering during traversal (avoids collecting then filtering)
-- .git directories are NOT skipped (detecting iCloud git corruption is a primary use case)
+- jwalk's `process_read_dir` callback handles ignore filtering during traversal (avoids collecting then filtering)
+- .git directories are NOT ignored (detecting iCloud git corruption is a primary use case)
 - Results are sorted by path for deterministic output
 - Symlinks are included as entries but not followed (no recursion into symlink targets)
 - Directory entries are included in the output (needed for Merkle tree construction)
 
 **Implementation steps**:
 
-1. Define `WalkOptions`, `WalkEntry`, and skip list constants
+1. Define `WalkOptions`, `WalkEntry`, and ignore list constants
 2. Configure jwalk::WalkDir with parallel options and sort
-3. Implement skip filtering in the walk callback
+3. Implement ignore filtering in the walk callback
 4. Collect entries with relative paths
 5. Sort by path
 6. Write unit tests
@@ -244,7 +244,7 @@ pub fn walk_directory(root: &Path, options: &WalkOptions) -> Vec<WalkEntry> { ..
 **Feedback loop**:
 
 - **Playground**: Unit tests with tempfile::TempDir fixtures
-- **Experiment**: Create trees with skippable dirs, symlinks, .git dirs
+- **Experiment**: Create trees with ignored dirs, symlinks, .git dirs
 - **Check command**: `cargo test walk`
 
 **Unit tests for walk.rs**:
@@ -252,10 +252,10 @@ pub fn walk_directory(root: &Path, options: &WalkOptions) -> Vec<WalkEntry> { ..
 - Walk a simple tree (3 files, 2 dirs), verify all entries returned in sorted order
 - Skip list: create a tree with node_modules/, .DS_Store, .venv/ -- verify they are excluded
 - .git directories ARE included (create .git/objects/foo, verify it appears)
-- `--no-skip` (skip_defaults=false): same tree, verify node_modules/ IS included
+- `--no-ignore` (use_default_ignores=false): same tree, verify node_modules/ IS included
 - Symlinks are returned as entries but not followed
 - *.nosync files/dirs are excluded
-- .sync-fingerprints/ directory is excluded
+- .sumpig-fingerprints/ directory is excluded
 - Empty directories are included
 
 ### 4. merkle.rs - Streaming Merkle Tree Computation
@@ -472,15 +472,15 @@ enum Commands {
         /// Output depth (controls manifest granularity, not hashing depth)
         #[arg(short, long, default_value = "6")]
         depth: usize,
-        /// Output file (default: <path>/.sync-fingerprints/<hostname>.txt)
+        /// Output file (default: <path>/.sumpig-fingerprints/<hostname>.txt)
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Worker thread count (default: number of CPU cores)
         #[arg(short, long)]
         jobs: Option<usize>,
-        /// Disable default skip list (hash everything)
+        /// Disable default ignore list (hash everything)
         #[arg(long)]
-        no_skip: bool,
+        no_ignore: bool,
     },
     // Compare subcommand added in Phase 2
 }
@@ -488,7 +488,7 @@ enum Commands {
 
 **Key decisions**:
 
-- Default output path: `<scanned_path>/.sync-fingerprints/<hostname>.txt`. Create the `.sync-fingerprints/` directory if it does not exist.
+- Default output path: `<scanned_path>/.sumpig-fingerprints/<hostname>.txt`. Create the `.sumpig-fingerprints/` directory if it does not exist.
 - All progress/status output goes to stderr. Manifest content can go to stdout if `--output -` is specified (future consideration).
 - Summary line on stderr after completion: file count, dir count, elapsed time, root hash.
 - Exit codes: 0 = success, 2 = usage error.
@@ -519,8 +519,8 @@ enum Commands {
 - Modify one file, re-fingerprint: root hash changes, modified file's entry changes
 - `--depth 1` produces fewer entries than `--depth 6` but same root hash
 - `--output FILE` writes to specified path instead of default
-- Default output goes to `<path>/.sync-fingerprints/<hostname>.txt`
-- `--no-skip` includes directories that would normally be skipped (create a node_modules/ in fixture)
+- Default output goes to `<path>/.sumpig-fingerprints/<hostname>.txt`
+- `--no-ignore` includes directories that would normally be ignored (create a node_modules/ in fixture)
 - `--jobs 1` produces same output as default (determinism regardless of thread count)
 - Progress/summary output goes to stderr, not stdout
 - Nonexistent path produces error message and exit code 2
