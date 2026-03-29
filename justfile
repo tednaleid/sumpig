@@ -33,6 +33,10 @@ bench:
 test-one NAME:
     cargo test {{NAME}}
 
+# Install release binary to ~/.cargo/bin (or CARGO_INSTALL_ROOT)
+install:
+    cargo install --path .
+
 # Build and run with arbitrary arguments
 run *ARGS:
     cargo run -- {{ARGS}}

@@ -375,3 +375,27 @@ fn fingerprint_empty_directory() {
     assert!(manifest.contains("# total_files: 0\n"));
     assert!(manifest.contains("  ./\n")); // Root entry should still exist.
 }
+
+#[test]
+fn quiet_flag_suppresses_summary() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let output_file = dir.path().join("manifest.txt");
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &output_file.to_string_lossy(),
+            "--quiet",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty());
+
+    // Manifest should still be written correctly.
+    let manifest = fs::read_to_string(&output_file).unwrap();
+    assert!(manifest.starts_with("# sumpig fingerprint\n"));
+    assert!(manifest.contains("# total_files: 3\n"));
+}

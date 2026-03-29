@@ -5,9 +5,6 @@ use std::path::Path;
 /// Buffer size for file reading (64KB, matching ripgrep's default).
 const READ_BUFFER_SIZE: usize = 64 * 1024;
 
-/// File size threshold for multi-threaded hashing with blake3's update_rayon().
-const LARGE_FILE_THRESHOLD: u64 = 1024 * 1024; // 1MB
-
 /// Result of hashing a single file.
 #[derive(Debug)]
 pub enum FileHash {
@@ -51,7 +48,7 @@ pub fn hash_file(path: &Path) -> FileHash {
     }
 
     // Hash the file contents with BLAKE3.
-    match hash_file_contents(path, metadata.len()) {
+    match hash_file_contents(path) {
         Ok(hash) => FileHash::Blake3(hash),
         Err(e) => FileHash::Error(e.to_string()),
     }
@@ -81,29 +78,22 @@ fn check_dataless(path: &Path) -> Option<u64> {
     }
 }
 
-/// Read and hash file contents with BLAKE3.
-/// Uses buffered reads for small files and update_rayon() for large files.
-fn hash_file_contents(path: &Path, file_size: u64) -> std::io::Result<[u8; 32]> {
-    if file_size > LARGE_FILE_THRESHOLD {
-        // Large file: read into memory and use multi-threaded hashing.
-        let data = fs::read(path)?;
-        let mut hasher = blake3::Hasher::new();
-        hasher.update_rayon(&data);
-        Ok(*hasher.finalize().as_bytes())
-    } else {
-        // Small file: buffered single-threaded read.
-        let mut file = fs::File::open(path)?;
-        let mut hasher = blake3::Hasher::new();
-        let mut buffer = [0u8; READ_BUFFER_SIZE];
-        loop {
-            let bytes_read = file.read(&mut buffer)?;
-            if bytes_read == 0 {
-                break;
-            }
-            hasher.update(&buffer[..bytes_read]);
+/// Read and hash file contents with BLAKE3 using buffered reads.
+/// All files use the same streaming path -- outer parallelism (rayon par_iter)
+/// handles throughput across files, so per-file multi-threading is unnecessary
+/// and risks OOM when many large files are hashed concurrently.
+fn hash_file_contents(path: &Path) -> std::io::Result<[u8; 32]> {
+    let mut file = fs::File::open(path)?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0u8; READ_BUFFER_SIZE];
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
         }
-        Ok(*hasher.finalize().as_bytes())
+        hasher.update(&buffer[..bytes_read]);
     }
+    Ok(*hasher.finalize().as_bytes())
 }
 
 /// Format a 32-byte hash as truncated hex (32 hex chars = 128 bits).
