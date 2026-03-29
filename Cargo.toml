@@ -2,6 +2,9 @@
 name = "sumpig"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+description = "Merkle tree directory fingerprinting and comparison"
+repository = "https://github.com/tednaleid/sumpig"
 
 [dependencies]
 blake3 = { version = "1", features = ["rayon"] }
