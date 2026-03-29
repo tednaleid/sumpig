@@ -105,3 +105,43 @@ file, which is rare in this use case.
 A prior iteration also tried `blake3::Hasher::update_rayon()` (without mmap), which
 required reading the entire file into memory first. This caused OOM on large files and was
 removed in commit 0747b28.
+
+### MetroHash128 as BLAKE3 replacement (rejected)
+
+**Date**: 2026-03-28
+
+**Hypothesis**: BLAKE3 is a cryptographic hash function running at ~2.2 GiB/s
+single-threaded on Apple Silicon. MetroHash128 is a non-cryptographic 128-bit hash that
+runs 3-4x faster on raw throughput benchmarks. For sumpig's use case (iCloud sync
+verification, no adversarial threat model), cryptographic guarantees aren't needed.
+Switching to metro could meaningfully reduce fingerprinting time.
+
+**Method**: Swapped blake3 for metrohash128 throughout (file hashing, Merkle tree
+construction, synthetic hashes). All tests passed. Ran real-world fingerprinting on a
+~40K file directory tree.
+
+**Real-world results**:
+
+| Hash | Wall clock | User CPU | System CPU | CPU utilization |
+|------|-----------|----------|-----------|----------------|
+| BLAKE3 | 28.9s | 64.9s | 39.2s | 360% |
+| MetroHash128 | 27.7s | 6.1s | 33.2s | 141% |
+
+**Result**: Wall-clock time is identical within noise (~4% difference). Rejected as a
+user-visible performance improvement.
+
+**Analysis**: Metro uses 10x less CPU time (6s vs 65s user), confirming it is dramatically
+faster at raw hashing. But the wall-clock time didn't improve because the workload is
+I/O-bound -- system CPU (filesystem reads) dominates at ~33-39s regardless of hash
+function. CPU utilization dropped from 360% to 141% because metro finishes hashing so
+quickly that threads spend most of their time waiting on I/O.
+
+**Side benefit**: Metro would reduce power consumption and thermal pressure on battery, but
+this is not worth the tradeoff of losing cryptographic collision resistance. BLAKE3
+provides stronger guarantees for data integrity verification with no user-visible
+performance cost.
+
+**Lesson**: For directory fingerprinting workloads on SSD, the hash function is not the
+bottleneck. I/O (file open, read, close) dominates. Optimizing hash throughput yields
+CPU savings but not wall-clock savings. Future performance work should focus on reducing
+I/O operations (e.g., metadata-only mode, caching) rather than faster hashing.
