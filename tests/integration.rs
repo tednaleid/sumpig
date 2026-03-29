@@ -851,3 +851,232 @@ fn tag_with_custom_name() {
         "expected custom tag in filename, got: {name}"
     );
 }
+
+// --- Match-settings integration tests ---
+
+#[test]
+fn match_settings_applies_depth_and_mode() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let reference = dir.path().join("reference.txt");
+    let matched = dir.path().join("matched.txt");
+
+    // Create a reference manifest with depth 3 and content mode.
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &reference.to_string_lossy(),
+            "--depth",
+            "3",
+            "--verify-contents",
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    // Fingerprint again using --match-settings.
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &matched.to_string_lossy(),
+            "--match-settings",
+            &reference.to_string_lossy(),
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    let manifest = fs::read_to_string(&matched).unwrap();
+    assert!(manifest.contains("# depth: 3\n"));
+    assert!(manifest.contains("# mode: content\n"));
+}
+
+#[test]
+fn match_settings_fast_mode() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let reference = dir.path().join("reference.txt");
+    let matched = dir.path().join("matched.txt");
+
+    // Create a reference manifest in fast mode (default).
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &reference.to_string_lossy(),
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    // Match it.
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &matched.to_string_lossy(),
+            "--match-settings",
+            &reference.to_string_lossy(),
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    let manifest = fs::read_to_string(&matched).unwrap();
+    assert!(manifest.contains("# mode: fast\n"));
+    assert!(manifest.contains("# depth: 6\n"));
+}
+
+#[test]
+fn match_settings_conflict_with_depth() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let reference = dir.path().join("reference.txt");
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &reference.to_string_lossy(),
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--match-settings",
+            &reference.to_string_lossy(),
+            "--depth",
+            "3",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[test]
+fn match_settings_conflict_with_verify_contents() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let reference = dir.path().join("reference.txt");
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &reference.to_string_lossy(),
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--match-settings",
+            &reference.to_string_lossy(),
+            "-C",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[test]
+fn match_settings_nonexistent_file() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--match-settings",
+            "/nonexistent/manifest.txt",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--match-settings"));
+}
+
+#[test]
+fn match_settings_short_flag() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let reference = dir.path().join("reference.txt");
+    let matched = dir.path().join("matched.txt");
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &reference.to_string_lossy(),
+            "--depth",
+            "2",
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    // Use -m short flag.
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "-o",
+            &matched.to_string_lossy(),
+            "-m",
+            &reference.to_string_lossy(),
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    let manifest = fs::read_to_string(&matched).unwrap();
+    assert!(manifest.contains("# depth: 2\n"));
+}
+
+#[test]
+fn match_settings_prints_compare_suggestion() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let reference = dir.path().join("reference.txt");
+    let matched = dir.path().join("matched.txt");
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &reference.to_string_lossy(),
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &matched.to_string_lossy(),
+            "--match-settings",
+            &reference.to_string_lossy(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("To compare: sumpig compare"));
+}

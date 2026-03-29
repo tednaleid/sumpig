@@ -53,6 +53,68 @@ pub fn write_manifest<W: io::Write>(
     Ok(())
 }
 
+/// Parse only the header from a manifest file, ignoring entries.
+/// Stops reading as soon as it encounters the first data line.
+pub fn parse_manifest_header<R: io::BufRead>(reader: R) -> Result<ManifestHeader, ParseError> {
+    let mut header = ManifestHeader {
+        host: String::new(),
+        path: String::new(),
+        depth: 0,
+        date: String::new(),
+        total_files: 0,
+        total_dirs: 0,
+        total_bytes: 0,
+        root_hash: String::new(),
+        mode: "content".to_string(),
+    };
+
+    for line in reader.lines() {
+        let line = line?;
+        let line = line.trim_end();
+
+        if line.is_empty() {
+            continue;
+        }
+
+        let Some(rest) = line.strip_prefix("# ") else {
+            break; // First data line; we're done with the header.
+        };
+
+        if let Some((key, value)) = rest.split_once(": ") {
+            match key {
+                "host" => header.host = value.to_string(),
+                "path" => header.path = value.to_string(),
+                "depth" => {
+                    header.depth = value
+                        .parse()
+                        .map_err(|_| ParseError::Format(format!("invalid depth: {value}")))?;
+                }
+                "date" => header.date = value.to_string(),
+                "total_files" => {
+                    header.total_files = value
+                        .parse()
+                        .map_err(|_| ParseError::Format(format!("invalid total_files: {value}")))?;
+                }
+                "total_dirs" => {
+                    header.total_dirs = value
+                        .parse()
+                        .map_err(|_| ParseError::Format(format!("invalid total_dirs: {value}")))?;
+                }
+                "total_bytes" => {
+                    header.total_bytes = value
+                        .parse()
+                        .map_err(|_| ParseError::Format(format!("invalid total_bytes: {value}")))?;
+                }
+                "root" => header.root_hash = value.to_string(),
+                "mode" => header.mode = value.to_string(),
+                _ => {}
+            }
+        }
+    }
+
+    Ok(header)
+}
+
 /// Parse a manifest file into header + entries.
 pub fn parse_manifest<R: io::BufRead>(
     reader: R,
@@ -374,6 +436,27 @@ mod tests {
         // Data lines use tab separator.
         assert!(output.contains("blake3:deadbeefdeadbeefdeadbeefdeadbeef\t./file.txt\n"));
         assert!(output.contains("dir:cafebabecafebabecafebabecafebabe\t./subdir/\n"));
+    }
+
+    #[test]
+    fn parse_header_only_stops_before_entries() {
+        let manifest = "# sumpig fingerprint\n# version: 2\n# host: cardinal\n# path: /Users/ted/workspace\n# depth: 4\n# date: 2026-03-29T06:03:18Z\n# total_files: 100000\n# total_dirs: 50\n# total_bytes: 9999\n# root: abc123def456abc123def456abc123de\n# mode: content\nblake3:deadbeefdeadbeefdeadbeefdeadbeef\t./file.txt\n";
+
+        let header = parse_manifest_header(io::BufReader::new(manifest.as_bytes())).unwrap();
+        assert_eq!(header.host, "cardinal");
+        assert_eq!(header.path, "/Users/ted/workspace");
+        assert_eq!(header.depth, 4);
+        assert_eq!(header.mode, "content");
+        assert_eq!(header.total_files, 100000);
+    }
+
+    #[test]
+    fn parse_header_only_works_without_entries() {
+        let manifest = "# sumpig fingerprint\n# version: 2\n# host: h\n# path: /p\n# depth: 6\n# date: 2026-01-01T00:00:00Z\n# total_files: 0\n# total_dirs: 0\n# total_bytes: 0\n# root: abc123\n# mode: fast\n";
+
+        let header = parse_manifest_header(io::BufReader::new(manifest.as_bytes())).unwrap();
+        assert_eq!(header.depth, 6);
+        assert_eq!(header.mode, "fast");
     }
 
     #[test]

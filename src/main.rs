@@ -25,9 +25,9 @@ enum Commands {
         /// Directory to fingerprint
         path: PathBuf,
 
-        /// Output depth (controls manifest granularity, not hashing depth)
-        #[arg(short, long, default_value = "6")]
-        depth: usize,
+        /// Output depth (controls manifest granularity, not hashing depth) [default: 6]
+        #[arg(short, long)]
+        depth: Option<usize>,
 
         /// Output file (default: <path>/.sumpig-fingerprints/<hostname>.txt)
         #[arg(short, long)]
@@ -52,6 +52,10 @@ enum Commands {
         /// Tag the output file with a name (or timestamp if no name given)
         #[arg(long, num_args = 0..=1, default_missing_value = "")]
         tag: Option<String>,
+
+        /// Use settings (depth, mode) from an existing manifest file
+        #[arg(short = 'm', long, conflicts_with_all = ["depth", "verify_contents"])]
+        match_settings: Option<PathBuf>,
     },
     /// Compare two fingerprint manifests and report differences
     Compare {
@@ -75,6 +79,7 @@ fn main() {
             quiet,
             verify_contents,
             tag,
+            match_settings,
         } => {
             if let Err(e) = run_fingerprint(&FingerprintOptions {
                 path: &path,
@@ -85,6 +90,7 @@ fn main() {
                 quiet,
                 verify_contents,
                 tag: tag.as_deref(),
+                match_settings: match_settings.as_deref(),
             }) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
@@ -155,13 +161,14 @@ fn run_compare(
 
 struct FingerprintOptions<'a> {
     path: &'a std::path::Path,
-    depth: usize,
+    depth: Option<usize>,
     output: Option<&'a std::path::Path>,
     jobs: Option<usize>,
     no_ignore: bool,
     quiet: bool,
     verify_contents: bool,
     tag: Option<&'a str>,
+    match_settings: Option<&'a std::path::Path>,
 }
 
 fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::Error>> {
@@ -175,6 +182,28 @@ fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::
     if !canonical.is_dir() {
         return Err(format!("{}: not a directory", opts.path.display()).into());
     }
+
+    // Resolve settings: --match-settings overrides depth and mode from a reference manifest.
+    let (depth, verify_contents) = if let Some(ref_path) = opts.match_settings {
+        let file = fs::File::open(ref_path)
+            .map_err(|e| format!("--match-settings: {}: {e}", ref_path.display()))?;
+        let reader = std::io::BufReader::new(file);
+        let header = sumpig::manifest::parse_manifest_header(reader)
+            .map_err(|e| format!("--match-settings: {}: {e}", ref_path.display()))?;
+
+        let vc = header.mode == "content";
+        if !opts.quiet {
+            eprintln!(
+                "  Using settings from {}: depth={}, mode={}",
+                ref_path.display(),
+                header.depth,
+                header.mode,
+            );
+        }
+        (header.depth, vc)
+    } else {
+        (opts.depth.unwrap_or(6), opts.verify_contents)
+    };
 
     // Walk the directory tree.
     let spinner = if !opts.quiet {
@@ -231,7 +260,7 @@ fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::
         .into_par_iter()
         .map(|e| {
             let full_path = canonical.join(&e.path);
-            let (file_hash, size) = if opts.verify_contents {
+            let (file_hash, size) = if verify_contents {
                 sumpig::hash::hash_file(&full_path)
             } else {
                 sumpig::hash::hash_file_metadata(&full_path)
@@ -255,7 +284,7 @@ fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::
     sorted_entries.sort_by(|a, b| a.0.cmp(&b.0));
 
     // Compute Merkle tree and produce flat entries.
-    let (flat_entries, root_hash) = sumpig::merkle::compute_manifest(&sorted_entries, opts.depth);
+    let (flat_entries, root_hash) = sumpig::merkle::compute_manifest(&sorted_entries, depth);
 
     let total_dirs = flat_entries
         .iter()
@@ -266,18 +295,13 @@ fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::
     let header = sumpig::manifest::ManifestHeader {
         host: sumpig::manifest::get_hostname(),
         path: canonical.to_string_lossy().into_owned(),
-        depth: opts.depth,
+        depth,
         date: sumpig::manifest::get_iso_date(),
         total_files: file_count,
         total_dirs,
         total_bytes,
         root_hash: sumpig::hash::hash_to_hex(&root_hash),
-        mode: if opts.verify_contents {
-            "content"
-        } else {
-            "fast"
-        }
-        .to_string(),
+        mode: if verify_contents { "content" } else { "fast" }.to_string(),
     };
 
     // Determine output path.
@@ -316,6 +340,13 @@ fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::
             sumpig::hash::hash_to_hex(&root_hash),
             output_path.display(),
         );
+        if let Some(ref_path) = opts.match_settings {
+            eprintln!(
+                "  To compare: sumpig compare {} {}",
+                ref_path.display(),
+                output_path.display(),
+            );
+        }
     }
 
     Ok(())
