@@ -1,8 +1,8 @@
 name: Benchmarks
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ['v*']
 
 jobs:
   bench:
