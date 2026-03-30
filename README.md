@@ -101,15 +101,16 @@ are not comparable.
 sumpig compare machine-a.txt machine-b.txt
 ```
 
-Output uses single-character prefixes on stdout, one path per line:
+Output uses tab-separated prefix and path on stdout, one entry per line:
 
 ```
-! ./path/to/changed-file.txt
-< ./path/only-in-first.txt
-> ./path/only-in-second.txt
+!	./path/to/changed-file.txt
+<	./path/only-in-first.txt
+>	./path/only-in-second.txt
 ```
 
 This is designed for piping -- summary and warnings go to stderr, so
+`sumpig compare a.txt b.txt | cut -f2` gives you just the paths, and
 `sumpig compare a.txt b.txt | grep "^<"` gives you just the missing files.
 
 Options:

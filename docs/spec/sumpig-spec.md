@@ -383,21 +383,20 @@ with statistical analysis and regression detection between runs.
 ## Compare output format
 
 When `sumpig compare file1.txt file2.txt` finds differences, stdout contains
-one path per line with a single-character prefix:
+tab-separated prefix and path, one entry per line:
 
 ```
-! ./archives/workspace/rust/ckrs/.git/index
-! ./archives/workspace/rust/ckrs/.git/HEAD
-< ./archives/workspace/newproject/README.md
+!	./archives/workspace/rust/ckrs/.git/index
+!	./archives/workspace/rust/ckrs/.git/HEAD
+<	./archives/workspace/newproject/README.md
 ```
 
 Prefixes: `!` = differs, `<` = only in first, `>` = only in second.
+Use `cut -f2` to extract bare paths.
 
-Summary, warnings, and status go to stderr:
+Summary and warnings go to stderr:
 
 ```
-Root hashes differ.
-
 Summary: 2 files differ, 1 dirs differ, 1 only in cardinal, 0 only in macstudio
 ```
 

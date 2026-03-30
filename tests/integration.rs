@@ -459,7 +459,7 @@ fn compare_modified_file_reports_diff() {
         ])
         .assert()
         .failure()
-        .stdout(predicate::str::contains("! ./file_a.txt"));
+        .stdout(predicate::str::contains("!\t./file_a.txt"));
 }
 
 #[test]
@@ -482,7 +482,7 @@ fn compare_added_file_reports_only_in_second() {
         ])
         .assert()
         .failure()
-        .stdout(predicate::str::contains("> ./new_file.txt"));
+        .stdout(predicate::str::contains(">\t./new_file.txt"));
 }
 
 #[test]
@@ -505,7 +505,7 @@ fn compare_deleted_file_reports_only_in_first() {
         ])
         .assert()
         .failure()
-        .stdout(predicate::str::contains("< ./file_a.txt"));
+        .stdout(predicate::str::contains("<\t./file_a.txt"));
 }
 
 #[test]
@@ -612,12 +612,12 @@ fn compare_compact_stdout_only_has_prefixed_lines() {
     // Every non-empty line on stdout should start with !, <, or >.
     for line in stdout.lines() {
         assert!(
-            line.starts_with("! ") || line.starts_with("< ") || line.starts_with("> "),
+            line.starts_with("!\t") || line.starts_with("<\t") || line.starts_with(">\t"),
             "unexpected stdout line: {line}"
         );
     }
-    assert!(stdout.contains("! ./file_a.txt\n"));
-    assert!(stdout.contains("> ./new_file.txt\n"));
+    assert!(stdout.contains("!\t./file_a.txt\n"));
+    assert!(stdout.contains(">\t./new_file.txt\n"));
 
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("Summary:"));
@@ -662,7 +662,7 @@ fn compare_show_directories_flag() {
         .unwrap();
     let stdout_d = String::from_utf8(output_d.stdout).unwrap();
     assert!(
-        stdout_d.contains("! ./\n"),
+        stdout_d.contains("!\t./\n"),
         "with -d, root dir should appear as changed"
     );
 }
@@ -696,10 +696,6 @@ fn compare_summary_on_stderr_not_stdout() {
         "Summary should not be on stdout"
     );
     assert!(stderr.contains("Summary:"), "Summary should be on stderr");
-    assert!(
-        stderr.contains("Root hashes differ"),
-        "Status should be on stderr"
-    );
 }
 
 // --- Mode integration tests ---

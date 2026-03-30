@@ -163,29 +163,27 @@ pub fn format_report(result: &CompareResult, show_directories: bool) -> CompareR
         return CompareReport { stdout, stderr };
     }
 
-    stderr.push_str("Root hashes differ.\n");
-
     if show_directories {
         for d in &result.changed_dirs {
-            stdout.push_str(&format!("! {}\n", d.path));
+            stdout.push_str(&format!("!\t{}\n", d.path));
         }
     }
 
     for f in &result.changed_files {
-        stdout.push_str(&format!("! {}\n", f.path));
+        stdout.push_str(&format!("!\t{}\n", f.path));
     }
 
     for p in &result.only_in_first {
         let is_dir = p.ends_with('/');
         if !is_dir || show_directories {
-            stdout.push_str(&format!("< {p}\n"));
+            stdout.push_str(&format!("<\t{p}\n"));
         }
     }
 
     for p in &result.only_in_second {
         let is_dir = p.ends_with('/');
         if !is_dir || show_directories {
-            stdout.push_str(&format!("> {p}\n"));
+            stdout.push_str(&format!(">\t{p}\n"));
         }
     }
 
@@ -437,7 +435,7 @@ mod tests {
         };
 
         let report = format_report(&result, false);
-        assert!(report.stdout.contains("! ./file.txt\n"));
+        assert!(report.stdout.contains("!\t./file.txt\n"));
         // Changed dirs should NOT appear in default compact output.
         assert!(!report.stdout.contains("./\n"));
     }
@@ -457,7 +455,7 @@ mod tests {
         };
 
         let report = format_report(&result, false);
-        assert!(report.stdout.contains("< ./gone.txt\n"));
+        assert!(report.stdout.contains("<\t./gone.txt\n"));
     }
 
     #[test]
@@ -475,7 +473,7 @@ mod tests {
         };
 
         let report = format_report(&result, false);
-        assert!(report.stdout.contains("> ./added.txt\n"));
+        assert!(report.stdout.contains(">\t./added.txt\n"));
     }
 
     #[test]
@@ -498,7 +496,6 @@ mod tests {
 
         let report = format_report(&result, false);
         assert!(report.stderr.contains("Summary:"));
-        assert!(report.stderr.contains("Root hashes differ"));
         // Summary should NOT be on stdout.
         assert!(!report.stdout.contains("Summary"));
     }
@@ -534,7 +531,7 @@ mod tests {
 
         let report = format_report(&result, false);
         // Only the file should be on stdout.
-        assert_eq!(report.stdout, "! ./subdir/file.txt\n");
+        assert_eq!(report.stdout, "!\t./subdir/file.txt\n");
     }
 
     #[test]
@@ -560,9 +557,9 @@ mod tests {
         };
 
         let report = format_report(&result, true);
-        assert!(report.stdout.contains("! ./subdir/\n"));
-        assert!(report.stdout.contains("! ./subdir/file.txt\n"));
-        assert!(report.stdout.contains("< ./extra_dir/\n"));
+        assert!(report.stdout.contains("!\t./subdir/\n"));
+        assert!(report.stdout.contains("!\t./subdir/file.txt\n"));
+        assert!(report.stdout.contains("<\t./extra_dir/\n"));
     }
 
     #[test]

@@ -62,12 +62,12 @@ enum Commands {
 EXAMPLES:
   sumpig compare machine-a.txt machine-b.txt
 
-Output (stdout):
-  ! ./path/to/changed-file.txt
-  < ./path/only-in-first.txt
-  > ./path/only-in-second.txt
+Output (stdout, tab-separated):
+  !\t./path/to/changed-file.txt
+  <\t./path/only-in-first.txt
+  >\t./path/only-in-second.txt
 
-Prefixes:
+Prefixes (use cut -f2 to extract paths):
   !  file differs between the two manifests
   <  entry only in the first manifest
   >  entry only in the second manifest
