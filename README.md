@@ -1,5 +1,9 @@
 # sumpig
 
+<p align="center">
+  <img src="docs/img/sumpig.png" alt="sumpig logo" width="400">
+</p>
+
 Merkle tree directory fingerprinting and comparison. Generates a content fingerprint
 of a directory tree using BLAKE3 hashes, then compares fingerprints to find exactly
 what differs between two copies of the same tree.
