@@ -382,29 +382,26 @@ with statistical analysis and regression detection between runs.
 
 ## Compare output format
 
-When `sumpig compare file1.txt file2.txt` finds differences:
+When `sumpig compare file1.txt file2.txt` finds differences, stdout contains
+one path per line with a single-character prefix:
+
+```
+! ./archives/workspace/rust/ckrs/.git/index
+! ./archives/workspace/rust/ckrs/.git/HEAD
+< ./archives/workspace/newproject/README.md
+```
+
+Prefixes: `!` = differs, `<` = only in first, `>` = only in second.
+
+Summary, warnings, and status go to stderr:
 
 ```
 Root hashes differ.
 
-Changed directories:
-  ./archives/workspace/rust/ckrs/.git/    cardinal:abc123  macstudio:def456
-
-Changed files:
-  ./archives/workspace/rust/ckrs/.git/index    cardinal:111aaa  macstudio:222bbb
-  ./archives/workspace/rust/ckrs/.git/HEAD     cardinal:333ccc  macstudio:444ddd
-
-Only in cardinal:
-  ./archives/workspace/newproject/
-
-Only in macstudio:
-  (none)
-
-Dataless warnings:
-  (none)
-
-Summary: 2 files differ, 1 directory only in cardinal, 0 only in macstudio
+Summary: 2 files differ, 1 dirs differ, 1 only in cardinal, 0 only in macstudio
 ```
+
+Use `-d` / `--show-directories` to include changed directories on stdout.
 
 ## Project setup
 

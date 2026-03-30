@@ -101,9 +101,23 @@ are not comparable.
 sumpig compare machine-a.txt machine-b.txt
 ```
 
-Reports changed files, changed directories, entries only on one side, and warnings
-for dataless or unreadable files. Uses the Merkle tree property to skip matching
-subtrees, so comparison is fast even for large trees.
+Output uses single-character prefixes on stdout, one path per line:
+
+```
+! ./path/to/changed-file.txt
+< ./path/only-in-first.txt
+> ./path/only-in-second.txt
+```
+
+This is designed for piping -- summary and warnings go to stderr, so
+`sumpig compare a.txt b.txt | grep "^<"` gives you just the missing files.
+
+Options:
+
+- `--show-directories`, `-d` -- include changed directories in the output.
+
+Uses the Merkle tree property to skip matching subtrees, so comparison is fast
+even for large trees.
 
 Exit codes: 0 = identical, 1 = differences found, 2 = usage error.
 

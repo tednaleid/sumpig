@@ -58,11 +58,32 @@ enum Commands {
         match_settings: Option<PathBuf>,
     },
     /// Compare two fingerprint manifests and report differences
+    #[command(after_long_help = "\
+EXAMPLES:
+  sumpig compare machine-a.txt machine-b.txt
+
+Output (stdout):
+  ! ./path/to/changed-file.txt
+  < ./path/only-in-first.txt
+  > ./path/only-in-second.txt
+
+Prefixes:
+  !  file differs between the two manifests
+  <  entry only in the first manifest
+  >  entry only in the second manifest
+
+Use -d to include changed directories in the output.
+Summary and warnings are printed to stderr.
+
+Exit codes: 0 = identical, 1 = differences found, 2 = error")]
     Compare {
         /// First fingerprint file
         file1: PathBuf,
         /// Second fingerprint file
         file2: PathBuf,
+        /// Include changed directories in output
+        #[arg(short = 'd', long)]
+        show_directories: bool,
     },
 }
 
@@ -96,7 +117,11 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Commands::Compare { file1, file2 } => match run_compare(&file1, &file2) {
+        Commands::Compare {
+            file1,
+            file2,
+            show_directories,
+        } => match run_compare(&file1, &file2, show_directories) {
             Ok(identical) => {
                 if !identical {
                     std::process::exit(1);
@@ -113,6 +138,7 @@ fn main() {
 fn run_compare(
     file1: &std::path::Path,
     file2: &std::path::Path,
+    show_directories: bool,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let reader1 = std::io::BufReader::new(fs::File::open(file1)?);
     let reader2 = std::io::BufReader::new(fs::File::open(file2)?);
@@ -147,14 +173,9 @@ fn run_compare(
 
     let result = sumpig::compare::compare_manifests(&entries1, &entries2, &label1, &label2);
 
-    let report = sumpig::compare::format_report(&result);
-    print!("{report}");
-
-    // Print warnings to stderr.
-    if !result.dataless_warnings.is_empty() || !result.error_warnings.is_empty() {
-        let warn_count = result.dataless_warnings.len() + result.error_warnings.len();
-        eprintln!("{warn_count} entries could not be fully verified (dataless/error)");
-    }
+    let report = sumpig::compare::format_report(&result, show_directories);
+    print!("{}", report.stdout);
+    eprint!("{}", report.stderr);
 
     Ok(result.identical)
 }

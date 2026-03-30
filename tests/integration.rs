@@ -435,7 +435,8 @@ fn compare_identical_manifests() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("identical"));
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::contains("identical"));
 }
 
 #[test]
@@ -458,7 +459,7 @@ fn compare_modified_file_reports_diff() {
         ])
         .assert()
         .failure()
-        .stdout(predicate::str::contains("./file_a.txt"));
+        .stdout(predicate::str::contains("! ./file_a.txt"));
 }
 
 #[test]
@@ -481,7 +482,7 @@ fn compare_added_file_reports_only_in_second() {
         ])
         .assert()
         .failure()
-        .stdout(predicate::str::contains("./new_file.txt"));
+        .stdout(predicate::str::contains("> ./new_file.txt"));
 }
 
 #[test]
@@ -504,7 +505,7 @@ fn compare_deleted_file_reports_only_in_first() {
         ])
         .assert()
         .failure()
-        .stdout(predicate::str::contains("./file_a.txt"));
+        .stdout(predicate::str::contains("< ./file_a.txt"));
 }
 
 #[test]
@@ -522,7 +523,8 @@ fn compare_manifest_against_itself() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("identical"));
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::contains("identical"));
 }
 
 #[test]
@@ -578,7 +580,126 @@ fn compare_depth_mismatch_same_root() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("identical"));
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::contains("identical"));
+}
+
+// --- Compare format integration tests ---
+
+#[test]
+fn compare_compact_stdout_only_has_prefixed_lines() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let before = dir.path().join("before.txt");
+    fingerprint_to(&tree, &before);
+
+    fs::write(tree.join("file_a.txt"), "modified content").unwrap();
+    fs::write(tree.join("new_file.txt"), "new").unwrap();
+
+    let after = dir.path().join("after.txt");
+    fingerprint_to(&tree, &after);
+
+    let output = sumpig()
+        .args([
+            "compare",
+            &before.to_string_lossy(),
+            &after.to_string_lossy(),
+        ])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    // Every non-empty line on stdout should start with !, <, or >.
+    for line in stdout.lines() {
+        assert!(
+            line.starts_with("! ") || line.starts_with("< ") || line.starts_with("> "),
+            "unexpected stdout line: {line}"
+        );
+    }
+    assert!(stdout.contains("! ./file_a.txt\n"));
+    assert!(stdout.contains("> ./new_file.txt\n"));
+
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("Summary:"));
+}
+
+#[test]
+fn compare_show_directories_flag() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let before = dir.path().join("before.txt");
+    fingerprint_to(&tree, &before);
+
+    fs::write(tree.join("file_a.txt"), "modified content").unwrap();
+
+    let after = dir.path().join("after.txt");
+    fingerprint_to(&tree, &after);
+
+    // Without -d: no directory lines on stdout.
+    let output_no_d = sumpig()
+        .args([
+            "compare",
+            &before.to_string_lossy(),
+            &after.to_string_lossy(),
+        ])
+        .output()
+        .unwrap();
+    let stdout_no_d = String::from_utf8(output_no_d.stdout).unwrap();
+    assert!(
+        !stdout_no_d.contains("./\n"),
+        "default output should not contain directory entries"
+    );
+
+    // With -d: directory lines appear.
+    let output_d = sumpig()
+        .args([
+            "compare",
+            "-d",
+            &before.to_string_lossy(),
+            &after.to_string_lossy(),
+        ])
+        .output()
+        .unwrap();
+    let stdout_d = String::from_utf8(output_d.stdout).unwrap();
+    assert!(
+        stdout_d.contains("! ./\n"),
+        "with -d, root dir should appear as changed"
+    );
+}
+
+#[test]
+fn compare_summary_on_stderr_not_stdout() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let before = dir.path().join("before.txt");
+    fingerprint_to(&tree, &before);
+
+    fs::write(tree.join("file_a.txt"), "modified content").unwrap();
+
+    let after = dir.path().join("after.txt");
+    fingerprint_to(&tree, &after);
+
+    let output = sumpig()
+        .args([
+            "compare",
+            &before.to_string_lossy(),
+            &after.to_string_lossy(),
+        ])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    assert!(
+        !stdout.contains("Summary"),
+        "Summary should not be on stdout"
+    );
+    assert!(stderr.contains("Summary:"), "Summary should be on stderr");
+    assert!(
+        stderr.contains("Root hashes differ"),
+        "Status should be on stderr"
+    );
 }
 
 // --- Mode integration tests ---
