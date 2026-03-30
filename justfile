@@ -80,10 +80,19 @@ bump version="":
     git push && git push --tags
     echo "v$new released!"
 
-# Delete a GitHub release and re-tag the current commit to re-trigger release workflows
+# Delete a GitHub release and re-tag the current commit to re-trigger release workflows.
+# Preserves the annotated tag message (release notes) across delete/recreate.
 # Usage: just retag 0.2.0
 retag version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Save existing tag annotation before deleting
+    notes=$(git tag -l --format='%(contents)' "v{{version}}" 2>/dev/null || echo "v{{version}}")
+    notes_file=$(mktemp)
+    trap 'rm -f "$notes_file"' EXIT
+    echo "$notes" > "$notes_file"
     gh release delete "v{{version}}" --yes || true
-    git push origin :refs/tags/"v{{version}}" || true
-    git tag -f "v{{version}}"
+    git push origin ":refs/tags/v{{version}}" || true
+    git tag -d "v{{version}}" || true
+    git tag -a "v{{version}}" -F "$notes_file"
     git push && git push --tags
