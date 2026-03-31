@@ -400,7 +400,8 @@ Summary and warnings go to stderr:
 Summary: 2 files differ, 1 dirs differ, 1 only in cardinal, 0 only in macstudio
 ```
 
-Use `-d` / `--show-directories` to include changed directories on stdout.
+Directories appear when they are at the manifest depth boundary (where individual
+files are not listed in the manifest).
 
 ## Project setup
 

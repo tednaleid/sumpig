@@ -6,6 +6,7 @@ use crate::merkle::EntryType;
 /// Result of comparing two manifests.
 pub struct CompareResult {
     pub identical: bool,
+    pub depth: usize,
     pub host1: String,
     pub host2: String,
     pub changed_dirs: Vec<ChangedEntry>,
@@ -29,6 +30,7 @@ pub fn compare_manifests(
     entries2: &[ManifestEntry],
     host1: &str,
     host2: &str,
+    depth: usize,
 ) -> CompareResult {
     let map1: HashMap<&str, &ManifestEntry> =
         entries1.iter().map(|e| (e.path.as_str(), e)).collect();
@@ -128,6 +130,7 @@ pub fn compare_manifests(
 
     CompareResult {
         identical,
+        depth,
         host1: host1.to_string(),
         host2: host2.to_string(),
         changed_dirs,
@@ -147,14 +150,25 @@ pub struct CompareReport {
     pub stderr: String,
 }
 
+/// Compute the depth of a path (number of components after stripping `./` prefix and trailing `/`).
+fn path_depth(path: &str) -> usize {
+    let trimmed = path
+        .strip_prefix("./")
+        .unwrap_or(path)
+        .trim_end_matches('/');
+    if trimmed.is_empty() {
+        return 0;
+    }
+    trimmed.split('/').count()
+}
+
 /// Format a CompareResult for terminal output.
 ///
-/// When `show_directories` is false (default), only changed files and
-/// only-in-one-side entries appear on stdout. When true, changed and
-/// one-sided directories are included too.
+/// Files always appear on stdout. Directories appear only when they are at the
+/// manifest depth boundary (where individual files are not available).
 ///
 /// Data lines go to `stdout` (pipeable); informational output goes to `stderr`.
-pub fn format_report(result: &CompareResult, show_directories: bool) -> CompareReport {
+pub fn format_report(result: &CompareResult) -> CompareReport {
     let mut stdout = String::new();
     let mut stderr = String::new();
 
@@ -163,8 +177,8 @@ pub fn format_report(result: &CompareResult, show_directories: bool) -> CompareR
         return CompareReport { stdout, stderr };
     }
 
-    if show_directories {
-        for d in &result.changed_dirs {
+    for d in &result.changed_dirs {
+        if path_depth(&d.path) == result.depth {
             stdout.push_str(&format!("!\t{}\n", d.path));
         }
     }
@@ -175,14 +189,14 @@ pub fn format_report(result: &CompareResult, show_directories: bool) -> CompareR
 
     for p in &result.only_in_first {
         let is_dir = p.ends_with('/');
-        if !is_dir || show_directories {
+        if !is_dir || path_depth(p) == result.depth {
             stdout.push_str(&format!("<\t{p}\n"));
         }
     }
 
     for p in &result.only_in_second {
         let is_dir = p.ends_with('/');
-        if !is_dir || show_directories {
+        if !is_dir || path_depth(p) == result.depth {
             stdout.push_str(&format!(">\t{p}\n"));
         }
     }
@@ -205,10 +219,15 @@ pub fn format_report(result: &CompareResult, show_directories: bool) -> CompareR
         }
     }
 
+    let boundary_dirs = result
+        .changed_dirs
+        .iter()
+        .filter(|d| path_depth(&d.path) == result.depth)
+        .count();
     let summary = format!(
         "\nSummary: {} files differ, {} dirs differ, {} only in {}, {} only in {}\n",
         result.changed_files.len(),
-        result.changed_dirs.len(),
+        boundary_dirs,
         result.only_in_first.len(),
         result.host1,
         result.only_in_second.len(),
@@ -243,7 +262,7 @@ mod tests {
     fn identical_manifests() {
         let entries = vec![dir("aaa", "./"), file("bbb", "./file.txt")];
 
-        let result = compare_manifests(&entries, &entries, "host1", "host2");
+        let result = compare_manifests(&entries, &entries, "host1", "host2", 6);
         assert!(result.identical);
         assert!(result.changed_dirs.is_empty());
         assert!(result.changed_files.is_empty());
@@ -264,7 +283,7 @@ mod tests {
             file("bbb", "./dir/file.txt"),
         ];
 
-        let result = compare_manifests(&entries1, &entries2, "h1", "h2");
+        let result = compare_manifests(&entries1, &entries2, "h1", "h2", 6);
         assert!(!result.identical);
         assert_eq!(result.changed_files.len(), 1);
         assert_eq!(result.changed_files[0].path, "./dir/file.txt");
@@ -283,7 +302,7 @@ mod tests {
         ];
         let entries2 = vec![dir("root2", "./"), file("aaa", "./exists.txt")];
 
-        let result = compare_manifests(&entries1, &entries2, "h1", "h2");
+        let result = compare_manifests(&entries1, &entries2, "h1", "h2", 6);
         assert!(!result.identical);
         assert!(result.only_in_first.contains(&"./gone.txt".to_string()));
     }
@@ -297,7 +316,7 @@ mod tests {
             file("ccc", "./added.txt"),
         ];
 
-        let result = compare_manifests(&entries1, &entries2, "h1", "h2");
+        let result = compare_manifests(&entries1, &entries2, "h1", "h2", 6);
         assert!(!result.identical);
         assert!(result.only_in_second.contains(&"./added.txt".to_string()));
     }
@@ -311,7 +330,7 @@ mod tests {
         ];
         let entries2 = vec![dir("root2", "./")];
 
-        let result = compare_manifests(&entries1, &entries2, "h1", "h2");
+        let result = compare_manifests(&entries1, &entries2, "h1", "h2", 6);
         assert!(!result.identical);
         assert!(result.only_in_first.contains(&"./extra_dir/".to_string()));
         assert!(
@@ -338,7 +357,7 @@ mod tests {
             file("yyy", "./other.txt"),
         ];
 
-        let result = compare_manifests(&entries1, &entries2, "h1", "h2");
+        let result = compare_manifests(&entries1, &entries2, "h1", "h2", 6);
         // dir/ hashes match, so children should be skipped.
         // Only other.txt should show as changed.
         assert!(!result.identical);
@@ -360,7 +379,7 @@ mod tests {
             entry(EntryType::Dataless, "12345", "./file.txt"),
         ];
 
-        let result = compare_manifests(&entries1, &entries2, "h1", "h2");
+        let result = compare_manifests(&entries1, &entries2, "h1", "h2", 6);
         assert!(!result.dataless_warnings.is_empty());
         assert!(result.dataless_warnings.contains("./file.txt"));
     }
@@ -376,7 +395,7 @@ mod tests {
             entry(EntryType::Dataless, "12345", "./file.txt"),
         ];
 
-        let result = compare_manifests(&entries1, &entries2, "h1", "h2");
+        let result = compare_manifests(&entries1, &entries2, "h1", "h2", 6);
         assert!(!result.dataless_warnings.is_empty());
     }
 
@@ -388,203 +407,202 @@ mod tests {
         ];
         let entries2 = vec![dir("root2", "./"), file("aaa", "./locked.db")];
 
-        let result = compare_manifests(&entries1, &entries2, "h1", "h2");
+        let result = compare_manifests(&entries1, &entries2, "h1", "h2", 6);
         assert!(!result.error_warnings.is_empty());
         assert!(result.error_warnings.contains("./locked.db"));
     }
 
-    #[test]
-    fn compact_identical_stdout_empty() {
-        let result = CompareResult {
-            identical: true,
-            host1: "mac1".to_string(),
-            host2: "mac2".to_string(),
+    fn result_with_depth(depth: usize) -> CompareResult {
+        CompareResult {
+            identical: false,
+            depth,
+            host1: "h1".to_string(),
+            host2: "h2".to_string(),
             changed_dirs: vec![],
             changed_files: vec![],
             only_in_first: vec![],
             only_in_second: vec![],
             dataless_warnings: HashSet::new(),
             error_warnings: HashSet::new(),
-        };
+        }
+    }
 
-        let report = format_report(&result, false);
+    #[test]
+    fn compact_identical_stdout_empty() {
+        let mut result = result_with_depth(6);
+        result.identical = true;
+
+        let report = format_report(&result);
         assert!(report.stdout.is_empty());
         assert!(report.stderr.contains("identical"));
     }
 
     #[test]
     fn compact_changed_file_uses_bang_prefix() {
-        let result = CompareResult {
-            identical: false,
-            host1: "cardinal".to_string(),
-            host2: "macstudio".to_string(),
-            changed_dirs: vec![ChangedEntry {
-                path: "./".to_string(),
-                value1: "aaa".to_string(),
-                value2: "bbb".to_string(),
-            }],
-            changed_files: vec![ChangedEntry {
-                path: "./file.txt".to_string(),
-                value1: "aaa".to_string(),
-                value2: "bbb".to_string(),
-            }],
-            only_in_first: vec![],
-            only_in_second: vec![],
-            dataless_warnings: HashSet::new(),
-            error_warnings: HashSet::new(),
-        };
+        let mut result = result_with_depth(6);
+        result.changed_dirs.push(ChangedEntry {
+            path: "./".to_string(),
+            value1: "aaa".to_string(),
+            value2: "bbb".to_string(),
+        });
+        result.changed_files.push(ChangedEntry {
+            path: "./file.txt".to_string(),
+            value1: "aaa".to_string(),
+            value2: "bbb".to_string(),
+        });
 
-        let report = format_report(&result, false);
+        let report = format_report(&result);
         assert!(report.stdout.contains("!\t./file.txt\n"));
-        // Changed dirs should NOT appear in default compact output.
+        // Root dir (depth 0) should NOT appear -- not at depth boundary.
         assert!(!report.stdout.contains("./\n"));
     }
 
     #[test]
     fn compact_only_in_first_uses_less_than_prefix() {
-        let result = CompareResult {
-            identical: false,
-            host1: "cardinal".to_string(),
-            host2: "macstudio".to_string(),
-            changed_dirs: vec![],
-            changed_files: vec![],
-            only_in_first: vec!["./gone.txt".to_string()],
-            only_in_second: vec![],
-            dataless_warnings: HashSet::new(),
-            error_warnings: HashSet::new(),
-        };
+        let mut result = result_with_depth(6);
+        result.only_in_first.push("./gone.txt".to_string());
 
-        let report = format_report(&result, false);
+        let report = format_report(&result);
         assert!(report.stdout.contains("<\t./gone.txt\n"));
     }
 
     #[test]
     fn compact_only_in_second_uses_greater_than_prefix() {
-        let result = CompareResult {
-            identical: false,
-            host1: "cardinal".to_string(),
-            host2: "macstudio".to_string(),
-            changed_dirs: vec![],
-            changed_files: vec![],
-            only_in_first: vec![],
-            only_in_second: vec!["./added.txt".to_string()],
-            dataless_warnings: HashSet::new(),
-            error_warnings: HashSet::new(),
-        };
+        let mut result = result_with_depth(6);
+        result.only_in_second.push("./added.txt".to_string());
 
-        let report = format_report(&result, false);
+        let report = format_report(&result);
         assert!(report.stdout.contains(">\t./added.txt\n"));
     }
 
     #[test]
     fn compact_summary_on_stderr() {
-        let result = CompareResult {
-            identical: false,
-            host1: "cardinal".to_string(),
-            host2: "macstudio".to_string(),
-            changed_dirs: vec![],
-            changed_files: vec![ChangedEntry {
-                path: "./file.txt".to_string(),
-                value1: "aaa".to_string(),
-                value2: "bbb".to_string(),
-            }],
-            only_in_first: vec!["./gone.txt".to_string()],
-            only_in_second: vec![],
-            dataless_warnings: HashSet::new(),
-            error_warnings: HashSet::new(),
-        };
+        let mut result = result_with_depth(6);
+        result.changed_files.push(ChangedEntry {
+            path: "./file.txt".to_string(),
+            value1: "aaa".to_string(),
+            value2: "bbb".to_string(),
+        });
+        result.only_in_first.push("./gone.txt".to_string());
 
-        let report = format_report(&result, false);
+        let report = format_report(&result);
         assert!(report.stderr.contains("Summary:"));
-        // Summary should NOT be on stdout.
         assert!(!report.stdout.contains("Summary"));
     }
 
     #[test]
-    fn compact_no_dirs_in_stdout_by_default() {
-        let result = CompareResult {
-            identical: false,
-            host1: "h1".to_string(),
-            host2: "h2".to_string(),
-            changed_dirs: vec![
-                ChangedEntry {
-                    path: "./".to_string(),
-                    value1: "aaa".to_string(),
-                    value2: "bbb".to_string(),
-                },
-                ChangedEntry {
-                    path: "./subdir/".to_string(),
-                    value1: "ccc".to_string(),
-                    value2: "ddd".to_string(),
-                },
-            ],
-            changed_files: vec![ChangedEntry {
-                path: "./subdir/file.txt".to_string(),
-                value1: "eee".to_string(),
-                value2: "fff".to_string(),
-            }],
-            only_in_first: vec![],
-            only_in_second: vec![],
-            dataless_warnings: HashSet::new(),
-            error_warnings: HashSet::new(),
-        };
+    fn ancestor_dirs_not_in_stdout() {
+        // depth=2, changed dirs at depth 0 and 1 should NOT appear
+        let mut result = result_with_depth(2);
+        result.changed_dirs.push(ChangedEntry {
+            path: "./".to_string(),
+            value1: "aaa".to_string(),
+            value2: "bbb".to_string(),
+        });
+        result.changed_dirs.push(ChangedEntry {
+            path: "./subdir/".to_string(),
+            value1: "ccc".to_string(),
+            value2: "ddd".to_string(),
+        });
+        result.changed_files.push(ChangedEntry {
+            path: "./subdir/file.txt".to_string(),
+            value1: "eee".to_string(),
+            value2: "fff".to_string(),
+        });
 
-        let report = format_report(&result, false);
-        // Only the file should be on stdout.
+        let report = format_report(&result);
+        // Only the file should be on stdout -- dirs are ancestors, not at boundary.
         assert_eq!(report.stdout, "!\t./subdir/file.txt\n");
     }
 
     #[test]
-    fn show_directories_includes_dirs_in_stdout() {
-        let result = CompareResult {
-            identical: false,
-            host1: "h1".to_string(),
-            host2: "h2".to_string(),
-            changed_dirs: vec![ChangedEntry {
-                path: "./subdir/".to_string(),
-                value1: "aaa".to_string(),
-                value2: "bbb".to_string(),
-            }],
-            changed_files: vec![ChangedEntry {
-                path: "./subdir/file.txt".to_string(),
-                value1: "ccc".to_string(),
-                value2: "ddd".to_string(),
-            }],
-            only_in_first: vec!["./extra_dir/".to_string()],
-            only_in_second: vec![],
-            dataless_warnings: HashSet::new(),
-            error_warnings: HashSet::new(),
-        };
+    fn depth_boundary_dir_appears_on_stdout() {
+        // depth=2, a changed dir at depth 2 should appear (it's the boundary)
+        let mut result = result_with_depth(2);
+        result.changed_dirs.push(ChangedEntry {
+            path: "./".to_string(),
+            value1: "aaa".to_string(),
+            value2: "bbb".to_string(),
+        });
+        result.changed_dirs.push(ChangedEntry {
+            path: "./a/".to_string(),
+            value1: "ccc".to_string(),
+            value2: "ddd".to_string(),
+        });
+        result.changed_dirs.push(ChangedEntry {
+            path: "./a/b/".to_string(),
+            value1: "eee".to_string(),
+            value2: "fff".to_string(),
+        });
 
-        let report = format_report(&result, true);
-        assert!(report.stdout.contains("!\t./subdir/\n"));
-        assert!(report.stdout.contains("!\t./subdir/file.txt\n"));
-        assert!(report.stdout.contains("<\t./extra_dir/\n"));
+        let report = format_report(&result);
+        // Only ./a/b/ (depth 2) should appear -- it's at the boundary.
+        assert!(report.stdout.contains("!\t./a/b/\n"));
+        assert!(!report.stdout.contains("!\t./\n"));
+        assert!(!report.stdout.contains("!\t./a/\n"));
+        // Summary should count only the 1 boundary dir, not all 3.
+        assert!(
+            report.stderr.contains("1 dirs differ"),
+            "summary should count only boundary dirs, got: {}",
+            report.stderr
+        );
+    }
+
+    #[test]
+    fn only_in_one_side_dir_at_boundary_appears() {
+        let mut result = result_with_depth(2);
+        result.only_in_first.push("./a/deep_dir/".to_string());
+        // Shallow dir (depth 1) should NOT appear.
+        result.only_in_first.push("./shallow_dir/".to_string());
+
+        let report = format_report(&result);
+        assert!(report.stdout.contains("<\t./a/deep_dir/\n"));
+        assert!(!report.stdout.contains("shallow_dir"));
+    }
+
+    #[test]
+    fn only_in_one_side_dir_at_boundary_second() {
+        let mut result = result_with_depth(2);
+        result.only_in_second.push("./a/deep_dir/".to_string());
+
+        let report = format_report(&result);
+        assert!(report.stdout.contains(">\t./a/deep_dir/\n"));
+    }
+
+    #[test]
+    fn large_depth_no_boundary_dirs() {
+        // depth=100, no dirs will be at the boundary
+        let mut result = result_with_depth(100);
+        result.changed_dirs.push(ChangedEntry {
+            path: "./".to_string(),
+            value1: "aaa".to_string(),
+            value2: "bbb".to_string(),
+        });
+        result.changed_dirs.push(ChangedEntry {
+            path: "./subdir/".to_string(),
+            value1: "ccc".to_string(),
+            value2: "ddd".to_string(),
+        });
+        result.changed_files.push(ChangedEntry {
+            path: "./subdir/file.txt".to_string(),
+            value1: "eee".to_string(),
+            value2: "fff".to_string(),
+        });
+
+        let report = format_report(&result);
+        // Only the file -- dirs are well below the boundary.
+        assert_eq!(report.stdout, "!\t./subdir/file.txt\n");
     }
 
     #[test]
     fn compact_warnings_on_stderr() {
-        let mut dataless = HashSet::new();
-        dataless.insert("./cloud.txt".to_string());
-        let mut errors = HashSet::new();
-        errors.insert("./locked.db".to_string());
+        let mut result = result_with_depth(6);
+        result.dataless_warnings.insert("./cloud.txt".to_string());
+        result.error_warnings.insert("./locked.db".to_string());
 
-        let result = CompareResult {
-            identical: false,
-            host1: "h1".to_string(),
-            host2: "h2".to_string(),
-            changed_dirs: vec![],
-            changed_files: vec![],
-            only_in_first: vec![],
-            only_in_second: vec![],
-            dataless_warnings: dataless,
-            error_warnings: errors,
-        };
-
-        let report = format_report(&result, false);
+        let report = format_report(&result);
         assert!(report.stderr.contains("cloud.txt"));
         assert!(report.stderr.contains("locked.db"));
-        // Warnings should NOT be on stdout.
         assert!(!report.stdout.contains("cloud.txt"));
         assert!(!report.stdout.contains("locked.db"));
     }

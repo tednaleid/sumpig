@@ -68,12 +68,13 @@ Output (stdout, tab-separated):
   >\t./path/only-in-second.txt
 
 Prefixes (use cut -f2 to extract paths):
-  !  file differs between the two manifests
+  !  file or directory differs between the two manifests
   <  entry only in the first manifest
   >  entry only in the second manifest
 
-Use -d to include changed directories in the output.
-Summary and warnings are printed to stderr.
+Directories appear when they are at the manifest depth boundary
+(where individual files are not listed). Summary and warnings
+are printed to stderr.
 
 Exit codes: 0 = identical, 1 = differences found, 2 = error")]
     Compare {
@@ -81,9 +82,6 @@ Exit codes: 0 = identical, 1 = differences found, 2 = error")]
         file1: PathBuf,
         /// Second fingerprint file
         file2: PathBuf,
-        /// Include changed directories in output
-        #[arg(short = 'd', long)]
-        show_directories: bool,
     },
 }
 
@@ -117,11 +115,7 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Commands::Compare {
-            file1,
-            file2,
-            show_directories,
-        } => match run_compare(&file1, &file2, show_directories) {
+        Commands::Compare { file1, file2 } => match run_compare(&file1, &file2) {
             Ok(identical) => {
                 if !identical {
                     std::process::exit(1);
@@ -138,7 +132,6 @@ fn main() {
 fn run_compare(
     file1: &std::path::Path,
     file2: &std::path::Path,
-    show_directories: bool,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let reader1 = std::io::BufReader::new(fs::File::open(file1)?);
     let reader2 = std::io::BufReader::new(fs::File::open(file2)?);
@@ -171,9 +164,10 @@ fn run_compare(
     let label1 = format!("{} ({})", header1.host, header1.date);
     let label2 = format!("{} ({})", header2.host, header2.date);
 
-    let result = sumpig::compare::compare_manifests(&entries1, &entries2, &label1, &label2);
+    let depth = header1.depth.min(header2.depth);
+    let result = sumpig::compare::compare_manifests(&entries1, &entries2, &label1, &label2, depth);
 
-    let report = sumpig::compare::format_report(&result, show_directories);
+    let report = sumpig::compare::format_report(&result);
     print!("{}", report.stdout);
     eprint!("{}", report.stderr);
 

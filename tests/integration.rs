@@ -624,7 +624,75 @@ fn compare_compact_stdout_only_has_prefixed_lines() {
 }
 
 #[test]
-fn compare_show_directories_flag() {
+fn compare_shows_depth_boundary_dirs() {
+    // Create a tree with files deeper than depth 2.
+    let dir = TempDir::new().unwrap();
+    let tree = dir.path().join("tree");
+    fs::create_dir(&tree).unwrap();
+    fs::create_dir_all(tree.join("a/b/c")).unwrap();
+    fs::write(tree.join("a/b/c/deep.txt"), "original").unwrap();
+    fs::write(tree.join("a/shallow.txt"), "stays same").unwrap();
+
+    let before = dir.path().join("before.txt");
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &before.to_string_lossy(),
+            "--depth",
+            "2",
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    // Modify the deep file (depth 3, beyond manifest depth 2).
+    fs::write(tree.join("a/b/c/deep.txt"), "modified").unwrap();
+
+    let after = dir.path().join("after.txt");
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--output",
+            &after.to_string_lossy(),
+            "--depth",
+            "2",
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    let output = sumpig()
+        .args([
+            "compare",
+            &before.to_string_lossy(),
+            &after.to_string_lossy(),
+        ])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    // The depth-2 directory ./a/b/ should appear (it's at the boundary).
+    assert!(
+        stdout.contains("!\t./a/b/\n"),
+        "depth-boundary dir should appear on stdout, got: {stdout}"
+    );
+    // Ancestor directories should NOT appear.
+    assert!(
+        !stdout.contains("!\t./\n"),
+        "root dir should not appear on stdout"
+    );
+    assert!(
+        !stdout.contains("!\t./a/\n"),
+        "intermediate dir should not appear on stdout"
+    );
+}
+
+#[test]
+fn compare_ancestor_dirs_hidden() {
+    // Shallow change at depth 1 -- ancestor dirs (root) should not appear.
     let dir = TempDir::new().unwrap();
     let tree = create_test_tree(&dir);
     let before = dir.path().join("before.txt");
@@ -635,8 +703,7 @@ fn compare_show_directories_flag() {
     let after = dir.path().join("after.txt");
     fingerprint_to(&tree, &after);
 
-    // Without -d: no directory lines on stdout.
-    let output_no_d = sumpig()
+    let output = sumpig()
         .args([
             "compare",
             &before.to_string_lossy(),
@@ -644,27 +711,15 @@ fn compare_show_directories_flag() {
         ])
         .output()
         .unwrap();
-    let stdout_no_d = String::from_utf8(output_no_d.stdout).unwrap();
-    assert!(
-        !stdout_no_d.contains("./\n"),
-        "default output should not contain directory entries"
-    );
 
-    // With -d: directory lines appear.
-    let output_d = sumpig()
-        .args([
-            "compare",
-            "-d",
-            &before.to_string_lossy(),
-            &after.to_string_lossy(),
-        ])
-        .output()
-        .unwrap();
-    let stdout_d = String::from_utf8(output_d.stdout).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    // Root dir should NOT appear -- it's an ancestor, not at boundary.
     assert!(
-        stdout_d.contains("!\t./\n"),
-        "with -d, root dir should appear as changed"
+        !stdout.contains("./\n"),
+        "root dir should not appear in default output"
     );
+    // The changed file should appear.
+    assert!(stdout.contains("!\t./file_a.txt\n"));
 }
 
 #[test]

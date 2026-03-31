@@ -115,13 +115,10 @@ Output uses tab-separated prefix and path on stdout, one entry per line:
 >	./path/only-in-second.txt
 ```
 
-This is designed for piping -- summary and warnings go to stderr, so
-`sumpig compare a.txt b.txt | cut -f2` gives you just the paths, and
+Directories appear when they are at the manifest depth boundary (where individual
+files are not listed). This is designed for piping -- summary and warnings go to
+stderr, so `sumpig compare a.txt b.txt | cut -f2` gives you just the paths, and
 `sumpig compare a.txt b.txt | grep "^<"` gives you just the missing files.
-
-Options:
-
-- `--show-directories`, `-d` -- include changed directories in the output.
 
 Uses the Merkle tree property to skip matching subtrees, so comparison is fast
 even for large trees.
