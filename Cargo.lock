@@ -872,6 +872,7 @@ dependencies = [
  "blake3",
  "clap",
  "criterion",
+ "crossbeam-channel",
  "indicatif",
  "jwalk",
  "libc",

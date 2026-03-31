@@ -1,11 +1,9 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
-use rayon::prelude::*;
 
 #[derive(Parser)]
 #[command(
@@ -220,12 +218,12 @@ fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::
         (opts.depth.unwrap_or(6), opts.verify_contents)
     };
 
-    // Walk the directory tree.
-    let spinner = if !opts.quiet {
-        let sp = ProgressBar::new_spinner();
-        sp.set_style(ProgressStyle::with_template("  {spinner} Scanning...").unwrap());
-        sp.enable_steady_tick(Duration::from_millis(120));
-        Some(sp)
+    // Walk and hash files in parallel (pipelined).
+    let pb: Option<ProgressBar> = if !opts.quiet {
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(ProgressStyle::with_template("  Hashing  {pos} files...").unwrap());
+        pb.enable_steady_tick(Duration::from_millis(120));
+        Some(pb)
     } else {
         None
     };
@@ -234,68 +232,24 @@ fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::
         use_default_ignores: !opts.no_ignore,
         num_threads: opts.jobs.unwrap_or(0),
     };
-    let walk_result = sumpig::walk::walk_directory(&canonical, &walk_options);
-
-    if let Some(sp) = &spinner {
-        sp.finish_and_clear();
-    }
-
-    // Convert walk errors to FileHash::Error entries so they appear in the manifest.
-    let walk_error_entries: Vec<(PathBuf, sumpig::hash::FileHash)> = walk_result
-        .errors
-        .into_iter()
-        .map(|e| (e.path, sumpig::hash::FileHash::Error(e.reason)))
-        .collect();
-
-    // Separate files from directories for hashing.
-    let files_to_hash: Vec<sumpig::walk::WalkEntry> = walk_result
-        .entries
-        .into_iter()
-        .filter(|e| !e.is_dir)
-        .collect();
-    let file_count = files_to_hash.len();
-
-    // Hash files in parallel with progress bar.
-    let pb = if !opts.quiet {
-        let pb = ProgressBar::new(file_count as u64);
-        pb.set_style(
-            ProgressStyle::with_template(
-                "  Hashing  [{bar:30}] {pos}/{len}  {percent}%  {eta} remaining",
-            )
-            .unwrap()
-            .progress_chars("##-"),
-        );
-        Some(pb)
-    } else {
-        None
-    };
-
-    let total_bytes = AtomicU64::new(0);
-    let hashed_entries: Vec<(PathBuf, sumpig::hash::FileHash)> = files_to_hash
-        .into_par_iter()
-        .map(|e| {
-            let full_path = canonical.join(&e.path);
-            let (file_hash, size) = if verify_contents {
-                sumpig::hash::hash_file(&full_path)
-            } else {
-                sumpig::hash::hash_file_metadata(&full_path)
-            };
-            total_bytes.fetch_add(size, Ordering::Relaxed);
-            if let Some(pb) = &pb {
+    let pb_clone = pb.clone();
+    let pipeline =
+        sumpig::walk::walk_and_hash(&canonical, &walk_options, verify_contents, move |_size| {
+            if let Some(ref pb) = pb_clone {
                 pb.inc(1);
             }
-            (e.path, file_hash)
-        })
-        .collect();
-    let total_bytes = total_bytes.into_inner();
+        });
 
     if let Some(pb) = &pb {
         pb.finish_and_clear();
     }
 
+    let file_count = pipeline.file_count;
+    let total_bytes = pipeline.total_bytes;
+
     // Merge walk errors into hashed entries, then sort.
-    let mut sorted_entries = hashed_entries;
-    sorted_entries.extend(walk_error_entries);
+    let mut sorted_entries = pipeline.hashed;
+    sorted_entries.extend(pipeline.errors);
     sorted_entries.sort_by(|a, b| a.0.cmp(&b.0));
 
     // Compute Merkle tree and produce flat entries.

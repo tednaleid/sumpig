@@ -9,6 +9,7 @@ repository = "https://github.com/tednaleid/sumpig"
 [dependencies]
 blake3 = "1"
 clap = { version = "4", features = ["derive"] }
+crossbeam-channel = "0.5"
 indicatif = "0.17"
 jwalk = "0.8"
 libc = "0.2"

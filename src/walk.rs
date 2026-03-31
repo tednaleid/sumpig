@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub struct WalkOptions {
@@ -182,6 +183,228 @@ pub fn walk_directory(root: &Path, options: &WalkOptions) -> WalkResult {
     errors.sort_by(|a, b| a.path.cmp(&b.path));
 
     WalkResult { entries, errors }
+}
+
+/// Result of the pipelined walk+hash operation.
+pub struct PipelineResult {
+    /// Hashed file entries (path, hash) -- NOT sorted.
+    pub hashed: Vec<(PathBuf, crate::hash::FileHash)>,
+    /// Walk errors converted to error hash entries.
+    pub errors: Vec<(PathBuf, crate::hash::FileHash)>,
+    /// Total bytes across all files.
+    pub total_bytes: u64,
+    /// Total number of files hashed.
+    pub file_count: usize,
+}
+
+/// Walk a directory tree and hash files in parallel, pipelining both operations.
+///
+/// Files are hashed as they're discovered rather than waiting for the walk to complete.
+/// The `on_file_hashed` callback is called for each file after hashing (for progress).
+/// Results are NOT sorted -- caller must sort before passing to compute_manifest.
+pub fn walk_and_hash<F>(
+    root: &Path,
+    options: &WalkOptions,
+    verify_contents: bool,
+    on_file_hashed: F,
+) -> PipelineResult
+where
+    F: Fn(u64) + Send + Sync + 'static,
+{
+    let root_canonical = root.to_path_buf();
+    let (tx, rx) = crossbeam_channel::bounded::<WalkEntry>(256);
+
+    // Shared state for walk errors.
+    let walk_errors: Arc<Mutex<Vec<(PathBuf, crate::hash::FileHash)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+    let walk_errors_for_thread = Arc::clone(&walk_errors);
+
+    // Extract options before spawning thread (can't send reference across thread boundary).
+    let ignore = options.use_default_ignores;
+    let num_threads = options.num_threads;
+
+    // Spawn walker thread -- sends file entries to the channel as they're discovered.
+    let walker_root = root_canonical.clone();
+    let walker_handle = std::thread::spawn(move || {
+        let root_buf = walker_root.clone();
+        let callback_errors: Arc<Mutex<Vec<WalkError>>> = Arc::new(Mutex::new(Vec::new()));
+        let callback_errors_ref = Arc::clone(&callback_errors);
+
+        let parallelism = if num_threads == 1 {
+            jwalk::Parallelism::Serial
+        } else if num_threads == 0 {
+            jwalk::Parallelism::RayonDefaultPool {
+                busy_timeout: std::time::Duration::from_secs(1),
+            }
+        } else {
+            jwalk::Parallelism::RayonNewPool(num_threads)
+        };
+
+        let walker = jwalk::WalkDir::new(&walker_root)
+            .parallelism(parallelism)
+            .skip_hidden(false)
+            .follow_links(false)
+            .process_read_dir(move |_depth, _path, _state, children| {
+                let root = &root_buf;
+                let mut errs = callback_errors_ref.lock().unwrap();
+                children.retain(|entry_result| {
+                    let Ok(entry) = entry_result else {
+                        let err = entry_result.as_ref().unwrap_err();
+                        if let Some(abs_path) = err.path() {
+                            let rel = abs_path
+                                .strip_prefix(root)
+                                .unwrap_or(abs_path)
+                                .to_path_buf();
+                            errs.push(WalkError {
+                                path: rel,
+                                reason: err.to_string(),
+                            });
+                        }
+                        return false;
+                    };
+
+                    if !ignore {
+                        return true;
+                    }
+
+                    let name = entry.file_name().to_string_lossy();
+                    let ft = entry.file_type();
+
+                    if ft.is_dir() && IGNORE_DIRS.contains(&name.as_ref()) {
+                        return false;
+                    }
+
+                    if ft.is_file() {
+                        if IGNORE_FILES.contains(&name.as_ref()) {
+                            return false;
+                        }
+                        if let Some(ext) = Path::new(name.as_ref()).extension()
+                            && IGNORE_EXTENSIONS.contains(&ext.to_string_lossy().as_ref())
+                        {
+                            return false;
+                        }
+                    }
+
+                    true
+                });
+            });
+
+        let errors_ref = &walk_errors_for_thread;
+
+        for entry in walker {
+            match entry {
+                Err(err) => {
+                    if let Some(abs_path) = err.path() {
+                        let rel = abs_path
+                            .strip_prefix(&walker_root)
+                            .unwrap_or(abs_path)
+                            .to_path_buf();
+                        errors_ref
+                            .lock()
+                            .unwrap()
+                            .push((rel, crate::hash::FileHash::Error(err.to_string())));
+                    }
+                }
+                Ok(entry) => {
+                    let path = entry.path();
+                    if path == walker_root {
+                        continue;
+                    }
+                    let Ok(relative) = path.strip_prefix(&walker_root) else {
+                        continue;
+                    };
+
+                    if let Some(ref err) = entry.read_children_error {
+                        errors_ref.lock().unwrap().push((
+                            relative.to_path_buf(),
+                            crate::hash::FileHash::Error(err.to_string()),
+                        ));
+                    }
+
+                    let file_type = entry.file_type;
+                    let is_symlink = file_type.is_symlink();
+                    let is_dir = file_type.is_dir();
+
+                    // Only send files (including symlinks) to the hash pipeline.
+                    if !is_dir {
+                        let _ = tx.send(WalkEntry {
+                            path: relative.to_path_buf(),
+                            is_dir,
+                            is_symlink,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Merge callback errors.
+        let mut callback_errs = Arc::try_unwrap(callback_errors)
+            .map(|mutex| mutex.into_inner().unwrap())
+            .unwrap_or_else(|arc| arc.lock().unwrap().clone());
+        let mut errs = errors_ref.lock().unwrap();
+        for e in callback_errs.drain(..) {
+            errs.push((e.path, crate::hash::FileHash::Error(e.reason)));
+        }
+        // tx is dropped here, closing the channel.
+    });
+
+    // Hash files in parallel as they arrive from the walker.
+    // Use dedicated threads (not rayon) to avoid contention with jwalk's rayon pool.
+    let num_hashers = if num_threads == 0 {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+    } else {
+        num_threads
+    };
+    let total_bytes = Arc::new(AtomicU64::new(0));
+    let on_file_hashed = Arc::new(on_file_hashed);
+
+    let hasher_handles: Vec<_> = (0..num_hashers)
+        .map(|_| {
+            let rx = rx.clone();
+            let root = root_canonical.clone();
+            let bytes = Arc::clone(&total_bytes);
+            let callback = Arc::clone(&on_file_hashed);
+            std::thread::spawn(move || {
+                let mut local_results = Vec::new();
+                while let Ok(e) = rx.recv() {
+                    let full_path = root.join(&e.path);
+                    let (file_hash, size) = if verify_contents {
+                        crate::hash::hash_file(&full_path)
+                    } else {
+                        crate::hash::hash_file_metadata(&full_path)
+                    };
+                    bytes.fetch_add(size, Ordering::Relaxed);
+                    callback(size);
+                    local_results.push((e.path, file_hash));
+                }
+                local_results
+            })
+        })
+        .collect();
+    // Drop our copy of rx so the channel closes when all hashers finish.
+    drop(rx);
+
+    walker_handle.join().expect("walker thread panicked");
+
+    let mut hashed: Vec<(PathBuf, crate::hash::FileHash)> = Vec::new();
+    for handle in hasher_handles {
+        hashed.extend(handle.join().expect("hasher thread panicked"));
+    }
+
+    let file_count = hashed.len();
+    let total_bytes = Arc::try_unwrap(total_bytes).unwrap().into_inner();
+    let errors = Arc::try_unwrap(walk_errors)
+        .map(|mutex| mutex.into_inner().unwrap())
+        .unwrap_or_else(|arc| arc.lock().unwrap().clone());
+
+    PipelineResult {
+        hashed,
+        errors,
+        total_bytes,
+        file_count,
+    }
 }
 
 #[cfg(test)]
@@ -474,5 +697,55 @@ mod tests {
             .collect();
 
         assert_eq!(paths, vec!["keep.txt"]);
+    }
+
+    #[test]
+    fn pipeline_matches_sequential() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a.txt"), "aaa").unwrap();
+        fs::write(dir.path().join("b.txt"), "bbb").unwrap();
+        fs::create_dir(dir.path().join("sub")).unwrap();
+        fs::write(dir.path().join("sub/c.txt"), "ccc").unwrap();
+
+        let opts = default_options();
+
+        // Sequential: walk, then hash.
+        let walk_result = walk_directory(dir.path(), &opts);
+        let mut sequential: Vec<(PathBuf, String)> = walk_result
+            .entries
+            .iter()
+            .filter(|e| !e.is_dir)
+            .map(|e| {
+                let (hash, _) = crate::hash::hash_file(&dir.path().join(&e.path));
+                let value = match hash {
+                    crate::hash::FileHash::Blake3(h) => crate::hash::hash_to_hex(&h),
+                    _ => panic!("expected blake3"),
+                };
+                (e.path.clone(), value)
+            })
+            .collect();
+        sequential.sort_by(|a, b| a.0.cmp(&b.0));
+
+        // Pipelined: walk+hash overlapped.
+        let pipeline_opts = WalkOptions {
+            use_default_ignores: true,
+            num_threads: 1,
+        };
+        let pipeline_result = walk_and_hash(dir.path(), &pipeline_opts, true, |_| {});
+        let mut pipelined: Vec<(PathBuf, String)> = pipeline_result
+            .hashed
+            .iter()
+            .map(|(path, hash)| {
+                let value = match hash {
+                    crate::hash::FileHash::Blake3(h) => crate::hash::hash_to_hex(h),
+                    _ => panic!("expected blake3"),
+                };
+                (path.clone(), value)
+            })
+            .collect();
+        pipelined.sort_by(|a, b| a.0.cmp(&b.0));
+
+        assert_eq!(sequential, pipelined);
+        assert_eq!(pipeline_result.file_count, 3);
     }
 }

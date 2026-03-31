@@ -6,7 +6,7 @@ use std::path::Path;
 const READ_BUFFER_SIZE: usize = 64 * 1024;
 
 /// Result of hashing a single file.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FileHash {
     /// Successful BLAKE3 hash of file content.
     Blake3([u8; 32]),
