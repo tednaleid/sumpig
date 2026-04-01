@@ -20,6 +20,12 @@ deploy artifacts, etc.
 brew install tednaleid/sumpig/sumpig
 ```
 
+To upgrade to the latest version:
+
+```
+brew update && brew upgrade sumpig
+```
+
 ### From source
 
 Requires Rust 1.85+ (edition 2024).
