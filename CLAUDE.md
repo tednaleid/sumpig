@@ -31,14 +31,18 @@ cargo directly. If a recipe doesn't exist for what you need, add one to the just
 
 ```
 just setup    # install required toolchain components (clippy, rustfmt)
-just check    # run tests + lint + format check
+just check    # run all tests, linting, and format check (used by CI)
 just test     # run all tests
 just test-one NAME  # run a specific test by name
 just lint     # run clippy
 just build    # build release binary
 just bench    # run benchmarks (accepts args, e.g. just bench --bench hash_bench)
 just fmt      # format code
+just clean    # remove build artifacts (use this, never bare rm -rf)
 just install  # install release binary to ~/.cargo/bin
+just bump     # bump version, generate release notes, tag, and push
+just retag    # re-trigger release workflow for an existing version
+just install-hooks  # install pre-commit hook that runs just check
 ```
 
 ## Testing conventions

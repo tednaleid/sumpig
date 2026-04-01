@@ -37,6 +37,10 @@ test-one NAME:
 install:
     cargo install --path .
 
+# Remove build artifacts
+clean:
+    cargo clean
+
 # Build and run with arbitrary arguments
 run *ARGS:
     cargo run -- {{ARGS}}
@@ -83,6 +87,15 @@ bump version="":
 # Delete a GitHub release and re-tag the current commit to re-trigger release workflows.
 # Preserves the annotated tag message (release notes) across delete/recreate.
 # Usage: just retag 0.2.0
+# Install git pre-commit hook that runs all checks before each commit
+install-hooks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    hook=".git/hooks/pre-commit"
+    printf '#!/bin/sh\njust check\n' > "$hook"
+    chmod +x "$hook"
+    echo "Installed pre-commit hook: $hook"
+
 retag version:
     #!/usr/bin/env bash
     set -euo pipefail
