@@ -33,22 +33,131 @@ pub struct WalkResult {
 
 /// Directories to ignore (not hashed, not listed).
 pub const IGNORE_DIRS: &[&str] = &[
+    // JavaScript/Node.js
     "node_modules",
+    ".npm",
+    ".eslintcache",
+    ".next",
+    ".nuxt",
+    // Python
     ".venv",
     "venv",
-    "target",
     "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".tox",
+    ".ruff_cache",
+    // Rust
+    "target",
+    // Swift/Xcode
+    ".build",
+    ".swiftpm",
+    "DerivedData",
+    // Zig
+    ".zig-cache",
+    "zig-out",
+    // Java/Kotlin/Gradle
     "build",
+    ".gradle",
+    // Testing
+    ".playwright-mcp",
+    "playwright-report",
+    "test-results",
+    "coverage",
+    // Static site generators
+    "_site",
+    // General build output
     "dist",
+    // Local tool caches
+    ".llm",
+    // macOS system
     ".Trash",
+    ".Spotlight-V100",
+    ".Trashes",
+    ".fseventsd",
+    ".TemporaryItems",
+    // Syncthing
+    ".stfolder",
+    ".stversions",
+    // sumpig
     ".sumpig-fingerprints",
 ];
 
+/// Directory name suffixes to ignore (e.g., ".egg-info" matches Python egg metadata).
+pub const IGNORE_DIR_SUFFIXES: &[&str] = &[".egg-info"];
+
+/// Ignore a child directory when its immediate parent matches.
+/// Format: (parent_name, child_name).
+pub const IGNORE_CHILD_DIRS: &[(&str, &str)] = &[(".yarn", "cache")];
+
+/// Ignore files with a given extension when any ancestor directory matches.
+/// Format: (ancestor_dir_name, extension).
+pub const IGNORE_EXTENSIONS_UNDER: &[(&str, &str)] = &[(".git", "lock")];
+
 /// Files to ignore.
-pub const IGNORE_FILES: &[&str] = &[".DS_Store", ".localized"];
+pub const IGNORE_FILES: &[&str] = &[
+    ".DS_Store",
+    ".localized",
+    ".apdisk",
+    ".metadata_never_index",
+];
+
+/// File name prefixes to ignore (e.g., "._" matches macOS resource forks).
+pub const IGNORE_FILE_PREFIXES: &[&str] = &["._", ".pnp."];
+
+/// File name suffixes to ignore (e.g., "~" matches editor backup files).
+pub const IGNORE_FILE_SUFFIXES: &[&str] = &["~"];
 
 /// File extensions to ignore.
-pub const IGNORE_EXTENSIONS: &[&str] = &["nosync"];
+pub const IGNORE_EXTENSIONS: &[&str] =
+    &["nosync", "pyc", "pyo", "class", "swp", "bak", "safetensors"];
+
+/// Returns true if the entry should be excluded by default ignore rules.
+/// `name` is the file/directory basename, `is_dir` is whether it's a directory,
+/// and `parent_rel_path` is the relative path from root to the parent directory.
+fn should_ignore(name: &str, is_dir: bool, parent_rel_path: &Path) -> bool {
+    if is_dir {
+        if IGNORE_DIRS.contains(&name) {
+            return true;
+        }
+        if IGNORE_DIR_SUFFIXES.iter().any(|s| name.ends_with(s)) {
+            return true;
+        }
+        if let Some(parent_name) = parent_rel_path.file_name().and_then(|n| n.to_str()) {
+            for &(parent, child) in IGNORE_CHILD_DIRS {
+                if parent_name == parent && name == child {
+                    return true;
+                }
+            }
+        }
+    } else {
+        if IGNORE_FILES.contains(&name) {
+            return true;
+        }
+        if IGNORE_FILE_PREFIXES.iter().any(|p| name.starts_with(p)) {
+            return true;
+        }
+        if IGNORE_FILE_SUFFIXES.iter().any(|s| name.ends_with(s)) {
+            return true;
+        }
+        if let Some(ext) = Path::new(name).extension() {
+            if IGNORE_EXTENSIONS.contains(&ext.to_string_lossy().as_ref()) {
+                return true;
+            }
+            let ext_str = ext.to_string_lossy();
+            for &(ancestor, ignored_ext) in IGNORE_EXTENSIONS_UNDER {
+                if ext_str.as_ref() == ignored_ext {
+                    for component in parent_rel_path.components() {
+                        if component.as_os_str() == ancestor {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
 
 /// Walk a directory tree, returning sorted entries and any errors encountered.
 /// Applies default ignore list unless options.use_default_ignores is false.
@@ -72,9 +181,10 @@ pub fn walk_directory(root: &Path, options: &WalkOptions) -> WalkResult {
         .parallelism(parallelism)
         .skip_hidden(false)
         .follow_links(false)
-        .process_read_dir(move |_depth, _path, _state, children| {
+        .process_read_dir(move |_depth, path, _state, children| {
             // Capture errors from directory reading before any filtering.
             let root = &root_buf;
+            let parent_rel = path.strip_prefix(root).unwrap_or(path);
             let mut errs = callback_errors_ref.lock().unwrap();
             children.retain(|entry_result| {
                 let Ok(entry) = entry_result else {
@@ -99,25 +209,7 @@ pub fn walk_directory(root: &Path, options: &WalkOptions) -> WalkResult {
 
                 let name = entry.file_name().to_string_lossy();
                 let ft = entry.file_type();
-
-                // Ignore directories by name.
-                if ft.is_dir() && IGNORE_DIRS.contains(&name.as_ref()) {
-                    return false;
-                }
-
-                // Ignore files by name or extension.
-                if ft.is_file() {
-                    if IGNORE_FILES.contains(&name.as_ref()) {
-                        return false;
-                    }
-                    if let Some(ext) = Path::new(name.as_ref()).extension()
-                        && IGNORE_EXTENSIONS.contains(&ext.to_string_lossy().as_ref())
-                    {
-                        return false;
-                    }
-                }
-
-                true
+                !should_ignore(&name, ft.is_dir(), parent_rel)
             });
         });
 
@@ -244,8 +336,9 @@ where
             .parallelism(parallelism)
             .skip_hidden(false)
             .follow_links(false)
-            .process_read_dir(move |_depth, _path, _state, children| {
+            .process_read_dir(move |_depth, path, _state, children| {
                 let root = &root_buf;
+                let parent_rel = path.strip_prefix(root).unwrap_or(path);
                 let mut errs = callback_errors_ref.lock().unwrap();
                 children.retain(|entry_result| {
                     let Ok(entry) = entry_result else {
@@ -269,23 +362,7 @@ where
 
                     let name = entry.file_name().to_string_lossy();
                     let ft = entry.file_type();
-
-                    if ft.is_dir() && IGNORE_DIRS.contains(&name.as_ref()) {
-                        return false;
-                    }
-
-                    if ft.is_file() {
-                        if IGNORE_FILES.contains(&name.as_ref()) {
-                            return false;
-                        }
-                        if let Some(ext) = Path::new(name.as_ref()).extension()
-                            && IGNORE_EXTENSIONS.contains(&ext.to_string_lossy().as_ref())
-                        {
-                            return false;
-                        }
-                    }
-
-                    true
+                    !should_ignore(&name, ft.is_dir(), parent_rel)
                 });
             });
 
@@ -551,10 +628,11 @@ mod tests {
     }
 
     #[test]
-    fn walk_includes_git_directories() {
+    fn walk_walks_git_but_ignores_lock_files() {
         let dir = TempDir::new().unwrap();
         fs::create_dir_all(dir.path().join(".git/objects")).unwrap();
         fs::write(dir.path().join(".git/objects/abc"), "data").unwrap();
+        fs::write(dir.path().join(".git/index.lock"), "").unwrap();
         fs::write(dir.path().join("keep.txt"), "keep").unwrap();
 
         let result = walk_directory(dir.path(), &default_options());
@@ -567,6 +645,7 @@ mod tests {
         assert!(paths.contains(&".git"));
         assert!(paths.contains(&".git/objects"));
         assert!(paths.contains(&".git/objects/abc"));
+        assert!(!paths.contains(&".git/index.lock"));
     }
 
     #[test]
@@ -575,6 +654,15 @@ mod tests {
         fs::create_dir(dir.path().join("node_modules")).unwrap();
         fs::write(dir.path().join("node_modules/pkg.json"), "{}").unwrap();
         fs::write(dir.path().join(".DS_Store"), "").unwrap();
+        // New patterns: pnp prefix, tilde suffix, egg-info dir, yarn/cache, git lock.
+        fs::write(dir.path().join(".pnp.cjs"), "").unwrap();
+        fs::write(dir.path().join("file.txt~"), "").unwrap();
+        fs::create_dir(dir.path().join("foo.egg-info")).unwrap();
+        fs::write(dir.path().join("foo.egg-info/PKG-INFO"), "").unwrap();
+        fs::create_dir_all(dir.path().join(".yarn/cache")).unwrap();
+        fs::write(dir.path().join(".yarn/cache/pkg.zip"), "").unwrap();
+        fs::create_dir_all(dir.path().join(".git")).unwrap();
+        fs::write(dir.path().join(".git/index.lock"), "").unwrap();
         fs::write(dir.path().join("keep.txt"), "keep").unwrap();
 
         let result = walk_directory(dir.path(), &no_ignore_options());
@@ -587,6 +675,13 @@ mod tests {
         assert!(paths.contains(&"node_modules"));
         assert!(paths.contains(&"node_modules/pkg.json"));
         assert!(paths.contains(&".DS_Store"));
+        assert!(paths.contains(&".pnp.cjs"));
+        assert!(paths.contains(&"file.txt~"));
+        assert!(paths.contains(&"foo.egg-info"));
+        assert!(paths.contains(&"foo.egg-info/PKG-INFO"));
+        assert!(paths.contains(&".yarn/cache"));
+        assert!(paths.contains(&".yarn/cache/pkg.zip"));
+        assert!(paths.contains(&".git/index.lock"));
         assert!(paths.contains(&"keep.txt"));
     }
 
@@ -683,10 +778,160 @@ mod tests {
             "__pycache__",
             "build",
             "dist",
+            ".build",
+            ".zig-cache",
+            ".ruff_cache",
+            ".llm",
+            ".playwright-mcp",
+            "coverage",
+            "_site",
+            ".stfolder",
         ] {
             fs::create_dir(dir.path().join(skip_dir)).unwrap();
             fs::write(dir.path().join(skip_dir).join("file.txt"), "").unwrap();
         }
+        fs::write(dir.path().join("keep.txt"), "keep").unwrap();
+
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
+
+        assert_eq!(paths, vec!["keep.txt"]);
+    }
+
+    #[test]
+    fn walk_ignores_dotunderscore_prefix() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("._resource_fork"), "").unwrap();
+        fs::write(dir.path().join("._Icon"), "").unwrap();
+        fs::write(dir.path().join("keep.txt"), "keep").unwrap();
+
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
+
+        assert_eq!(paths, vec!["keep.txt"]);
+    }
+
+    #[test]
+    fn walk_ignores_new_extensions() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("module.pyc"), "").unwrap();
+        fs::write(dir.path().join("Helper.class"), "").unwrap();
+        fs::write(dir.path().join(".file.swp"), "").unwrap();
+        fs::write(dir.path().join("old.bak"), "").unwrap();
+        fs::write(dir.path().join("keep.txt"), "keep").unwrap();
+
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
+
+        assert_eq!(paths, vec!["keep.txt"]);
+    }
+
+    #[test]
+    fn walk_ignores_lock_files_under_git() {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join(".git/refs/heads")).unwrap();
+        fs::write(dir.path().join(".git/index.lock"), "").unwrap();
+        fs::write(dir.path().join(".git/refs/heads/main.lock"), "").unwrap();
+        fs::write(dir.path().join(".git/refs/heads/main"), "ref").unwrap();
+        fs::write(dir.path().join(".git/HEAD"), "ref: refs/heads/main").unwrap();
+        // .lock files outside .git should NOT be ignored.
+        fs::write(dir.path().join("Cargo.lock"), "lockfile").unwrap();
+        fs::write(dir.path().join("keep.txt"), "keep").unwrap();
+
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
+
+        // .git contents are walked, but .lock files inside .git are excluded.
+        assert!(paths.contains(&".git"));
+        assert!(paths.contains(&".git/HEAD"));
+        assert!(paths.contains(&".git/refs/heads/main"));
+        assert!(!paths.contains(&".git/index.lock"));
+        assert!(!paths.contains(&".git/refs/heads/main.lock"));
+        // .lock files outside .git are kept.
+        assert!(paths.contains(&"Cargo.lock"));
+        assert!(paths.contains(&"keep.txt"));
+    }
+
+    #[test]
+    fn walk_ignores_yarn_cache_but_not_yarn() {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join(".yarn/cache")).unwrap();
+        fs::write(dir.path().join(".yarn/cache/pkg.zip"), "").unwrap();
+        fs::create_dir_all(dir.path().join(".yarn/releases")).unwrap();
+        fs::write(dir.path().join(".yarn/releases/yarn.cjs"), "").unwrap();
+        fs::write(dir.path().join("keep.txt"), "keep").unwrap();
+
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
+
+        assert!(paths.contains(&".yarn"));
+        assert!(paths.contains(&".yarn/releases"));
+        assert!(paths.contains(&".yarn/releases/yarn.cjs"));
+        assert!(!paths.contains(&".yarn/cache"));
+        assert!(!paths.contains(&".yarn/cache/pkg.zip"));
+        assert!(paths.contains(&"keep.txt"));
+    }
+
+    #[test]
+    fn walk_ignores_egg_info_directories() {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir(dir.path().join("mypackage.egg-info")).unwrap();
+        fs::write(dir.path().join("mypackage.egg-info/PKG-INFO"), "").unwrap();
+        fs::write(dir.path().join("keep.txt"), "keep").unwrap();
+
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
+
+        assert_eq!(paths, vec!["keep.txt"]);
+    }
+
+    #[test]
+    fn walk_ignores_tilde_backup_files() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("file.txt~"), "").unwrap();
+        fs::write(dir.path().join("Makefile~"), "").unwrap();
+        fs::write(dir.path().join("keep.txt"), "keep").unwrap();
+
+        let result = walk_directory(dir.path(), &default_options());
+        let paths: Vec<&str> = result
+            .entries
+            .iter()
+            .map(|e| e.path.to_str().unwrap())
+            .collect();
+
+        assert_eq!(paths, vec!["keep.txt"]);
+    }
+
+    #[test]
+    fn walk_ignores_pnp_files() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join(".pnp.js"), "").unwrap();
+        fs::write(dir.path().join(".pnp.cjs"), "").unwrap();
+        fs::write(dir.path().join(".pnp.loader.mjs"), "").unwrap();
         fs::write(dir.path().join("keep.txt"), "keep").unwrap();
 
         let result = walk_directory(dir.path(), &default_options());
