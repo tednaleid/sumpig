@@ -50,13 +50,13 @@ extract it, and put it somewhere on your PATH.
 sumpig fingerprint ~/Documents
 ```
 
-This fingerprints every file's metadata (size and modification time), computes Merkle
-directory hashes, and writes a manifest to `~/Documents/.sumpig-fingerprints/<hostname>.txt`.
+This hashes every file's contents with BLAKE3, computes Merkle directory hashes, and
+writes a manifest to `~/Documents/.sumpig-fingerprints/<hostname>.txt`.
 
 Options:
 
-- `--verify-contents`, `-C` -- hash file contents instead of metadata (slower, detects silent corruption).
-- `--depth N` -- control output granularity (default: 6). Does not affect hashing depth.
+- `--metadata`, `-M` -- use fast metadata-only hashing (size and modification time) instead of content hashing.
+- `--depth N` -- control output granularity (default: 10). Does not affect hashing depth.
 - `--output FILE` -- write manifest to a specific path instead of the default.
 - `--jobs N` -- number of worker threads (default: all cores).
 - `--no-ignore` -- disable the default ignore list (node_modules, target, .venv, etc.).
@@ -84,26 +84,24 @@ Without `--tag`, the default `<hostname>.txt` filename is used, which overwrites
 run. This is useful when comparing the same directory across two machines (each machine
 writes its own hostname file into the same iCloud-synced directory).
 
-### Metadata vs content verification
+### Content vs metadata hashing
 
-By default, sumpig fingerprints file metadata (size and modification time) without reading
-file contents. This is fast (~5 seconds on a 40K-file tree) and sufficient for routine
-iCloud sync checks, since iCloud preserves modification times.
+By default, sumpig reads and hashes every file with BLAKE3. This detects any change to
+file contents, including silent corruption that preserves file size and timestamps.
+On a ~40K-file tree, this takes ~28 seconds.
 
-For deeper verification, use `--verify-contents` (or `-C`) to read and hash every file
-with BLAKE3. This is ~5x slower (~28 seconds on the same tree) but detects silent
-corruption that preserves file size and timestamps.
+For faster routine checks, use `--metadata` (or `-M`) to hash only file metadata (size
+and modification time) without reading file contents. This is ~5x faster (~5 seconds on
+the same tree) and sufficient for iCloud sync checks, since iCloud preserves modification
+times.
 
 ```
-sumpig fingerprint ~/Documents                    # metadata (default, fast)
-sumpig fingerprint --verify-contents ~/Documents  # content hashing (thorough)
-sumpig fingerprint -C ~/Documents                 # same, short form
+sumpig fingerprint ~/Documents                # content hashing (default, thorough)
+sumpig fingerprint --metadata ~/Documents     # metadata only (fast)
+sumpig fingerprint -M ~/Documents             # same, short form
 ```
 
-Use content verification after recovering from a known sync failure, or when checking
-integrity of git repositories where silent corruption is a concern.
-
-Manifests record their mode in the header (`# mode: fast` or `# mode: content`). The
+Manifests record their mode in the header (`# mode: content` or `# mode: fast`). The
 compare command warns if you compare manifests from different modes, since their hashes
 are not comparable.
 
@@ -111,7 +109,12 @@ are not comparable.
 
 ```
 sumpig compare machine-a.txt machine-b.txt
+sumpig compare ~/Documents                   # auto-discovers 2 files in .sumpig-fingerprints/
 ```
+
+The single-directory form looks for exactly 2 `.txt` files in
+`<dir>/.sumpig-fingerprints/` and compares them. This is the common case when two
+machines have each written their fingerprint into the same synced directory.
 
 Output uses tab-separated prefix and path on stdout, one entry per line:
 

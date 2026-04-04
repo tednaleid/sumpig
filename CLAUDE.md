@@ -17,7 +17,7 @@ are identical by computing and comparing BLAKE3 hash trees.
 
 Single crate with library + binary targets. Modules:
 
-- `hash.rs` -- BLAKE3 file hashing, metadata hashing (--fast), dataless detection, error recording
+- `hash.rs` -- BLAKE3 file hashing, metadata hashing (--metadata / -M), dataless detection, error recording
 - `walk.rs` -- parallel directory walking with configurable skip list
 - `merkle.rs` -- streaming Merkle tree computation (no in-memory tree)
 - `manifest.rs` -- manifest file writing and parsing

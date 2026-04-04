@@ -1,23 +1,24 @@
 # Performance Notes
 
-## Default mode (metadata fingerprinting)
+## Content vs metadata hashing
 
-By default, sumpig hashes file metadata (size + modification time) instead of reading file
-contents. This skips all file I/O beyond stat calls, which is fast enough for routine use:
+By default, sumpig hashes file contents with BLAKE3. Use `--metadata` / `-M` to hash only
+file metadata (size + modification time), skipping all file I/O beyond stat calls:
 
 | Mode | Wall clock | User CPU | System CPU |
 |------|-----------|----------|-----------|
-| default (metadata) | 5.3s | 0.9s | 18.9s |
-| `--verify-contents` | 28.1s | 65.1s | 41.0s |
+| default (content) | 28.1s | 65.1s | 41.0s |
+| `--metadata` | 5.3s | 0.9s | 18.9s |
 
-~5x faster on a ~40K file directory tree. The Merkle tree structure is identical in both
-modes -- only the leaf hashes differ (metadata hash vs content hash). The manifest header
-records the mode (`# mode: fast` vs `# mode: content`) and compare warns if modes differ.
+Metadata mode is ~5x faster on a ~40K file directory tree. The Merkle tree structure is
+identical in both modes -- only the leaf hashes differ (content hash vs metadata hash).
+The manifest header records the mode (`# mode: content` vs `# mode: fast`) and compare
+warns if modes differ.
 
 Metadata mode detects file additions, deletions, and size/timestamp changes. It cannot
 detect corruption that preserves file size and modification time.
 
-## Content verification (--verify-contents / -C)
+## Content hashing internals
 
 sumpig uses two levels of parallelism:
 
@@ -160,7 +161,7 @@ performance cost.
 
 **Lesson**: For directory fingerprinting workloads on SSD, the hash function is not the
 bottleneck. I/O (file open, read, close) dominates. Optimizing hash throughput yields
-CPU savings but not wall-clock savings. This finding informed the decision to make
-metadata fingerprinting the default mode -- it eliminates file reads entirely, achieving
-a 5x speedup. Future performance work should focus on hash caching to bring content
-verification closer to metadata-mode speed on repeated runs.
+CPU savings but not wall-clock savings. Content hashing is now the default mode since
+correctness matters more than speed for integrity verification. The `--metadata` / `-M`
+flag is available when speed is preferred. Future performance work should focus on hash
+caching to bring content verification closer to metadata-mode speed on repeated runs.

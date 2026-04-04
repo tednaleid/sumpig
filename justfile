@@ -32,7 +32,7 @@ bench *ARGS:
 # Benchmark fingerprinting a directory with hyperfine (1 warmup, 3 runs)
 bench-dir dir:
     cargo build --release
-    hyperfine --warmup 1 --runs 3 'target/release/sumpig fingerprint {{dir}} -C'
+    hyperfine --warmup 1 --runs 3 'target/release/sumpig fingerprint {{dir}}'
 
 # Run a specific test by name
 test-one NAME:

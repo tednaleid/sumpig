@@ -66,7 +66,7 @@ fn fingerprint_produces_valid_manifest() {
     assert!(manifest.starts_with("# sumpig fingerprint\n"));
     assert!(manifest.contains("# version: 2\n"));
     assert!(manifest.contains("# host: "));
-    assert!(manifest.contains("# depth: 6\n"));
+    assert!(manifest.contains("# depth: 10\n"));
     assert!(manifest.contains("# total_files: 3\n"));
     assert!(manifest.contains("# total_bytes: 9\n"));
 }
@@ -756,7 +756,7 @@ fn compare_summary_on_stderr_not_stdout() {
 // --- Mode integration tests ---
 
 #[test]
-fn default_mode_is_fast() {
+fn default_mode_is_content() {
     let dir = TempDir::new().unwrap();
     let tree = create_test_tree(&dir);
     let output_file = dir.path().join("manifest.txt");
@@ -772,7 +772,7 @@ fn default_mode_is_fast() {
         .success();
 
     let manifest = fs::read_to_string(&output_file).unwrap();
-    assert!(manifest.contains("# mode: fast\n"));
+    assert!(manifest.contains("# mode: content\n"));
     assert!(manifest.contains("# version: 2\n"));
     assert!(manifest.contains("# total_files: 3\n"));
 }
@@ -846,10 +846,10 @@ fn default_mode_detects_file_modification() {
 }
 
 #[test]
-fn verify_contents_produces_content_mode() {
+fn metadata_flag_produces_fast_mode() {
     let dir = TempDir::new().unwrap();
     let tree = create_test_tree(&dir);
-    let output_file = dir.path().join("content.txt");
+    let output_file = dir.path().join("fast.txt");
 
     sumpig()
         .args([
@@ -857,20 +857,20 @@ fn verify_contents_produces_content_mode() {
             &tree.to_string_lossy(),
             "--output",
             &output_file.to_string_lossy(),
-            "--verify-contents",
+            "--metadata",
         ])
         .assert()
         .success();
 
     let manifest = fs::read_to_string(&output_file).unwrap();
-    assert!(manifest.contains("# mode: content\n"));
+    assert!(manifest.contains("# mode: fast\n"));
 }
 
 #[test]
-fn verify_contents_short_flag() {
+fn metadata_short_flag() {
     let dir = TempDir::new().unwrap();
     let tree = create_test_tree(&dir);
-    let output_file = dir.path().join("content.txt");
+    let output_file = dir.path().join("fast.txt");
 
     sumpig()
         .args([
@@ -878,17 +878,17 @@ fn verify_contents_short_flag() {
             &tree.to_string_lossy(),
             "--output",
             &output_file.to_string_lossy(),
-            "-C",
+            "-M",
         ])
         .assert()
         .success();
 
     let manifest = fs::read_to_string(&output_file).unwrap();
-    assert!(manifest.contains("# mode: content\n"));
+    assert!(manifest.contains("# mode: fast\n"));
 }
 
 #[test]
-fn default_and_verify_contents_produce_different_hashes() {
+fn default_and_metadata_produce_different_hashes() {
     let dir = TempDir::new().unwrap();
     let tree = create_test_tree(&dir);
     let fast_out = dir.path().join("fast.txt");
@@ -900,6 +900,7 @@ fn default_and_verify_contents_produce_different_hashes() {
             &tree.to_string_lossy(),
             "--output",
             &fast_out.to_string_lossy(),
+            "--metadata",
             "--quiet",
         ])
         .assert()
@@ -910,7 +911,6 @@ fn default_and_verify_contents_produce_different_hashes() {
             &tree.to_string_lossy(),
             "--output",
             &content_out.to_string_lossy(),
-            "--verify-contents",
             "--quiet",
         ])
         .assert()
@@ -940,6 +940,7 @@ fn compare_mode_mismatch_warns() {
             &tree.to_string_lossy(),
             "--output",
             &fast_out.to_string_lossy(),
+            "--metadata",
             "--quiet",
         ])
         .assert()
@@ -950,7 +951,6 @@ fn compare_mode_mismatch_warns() {
             &tree.to_string_lossy(),
             "--output",
             &content_out.to_string_lossy(),
-            "--verify-contents",
             "--quiet",
         ])
         .assert()
@@ -1033,7 +1033,7 @@ fn match_settings_applies_depth_and_mode() {
     let reference = dir.path().join("reference.txt");
     let matched = dir.path().join("matched.txt");
 
-    // Create a reference manifest with depth 3 and content mode.
+    // Create a reference manifest with depth 3 and content mode (now the default).
     sumpig()
         .args([
             "fingerprint",
@@ -1042,7 +1042,6 @@ fn match_settings_applies_depth_and_mode() {
             &reference.to_string_lossy(),
             "--depth",
             "3",
-            "--verify-contents",
             "--quiet",
         ])
         .assert()
@@ -1074,13 +1073,14 @@ fn match_settings_fast_mode() {
     let reference = dir.path().join("reference.txt");
     let matched = dir.path().join("matched.txt");
 
-    // Create a reference manifest in fast mode (default).
+    // Create a reference manifest in fast mode (requires --metadata flag).
     sumpig()
         .args([
             "fingerprint",
             &tree.to_string_lossy(),
             "--output",
             &reference.to_string_lossy(),
+            "--metadata",
             "--quiet",
         ])
         .assert()
@@ -1102,7 +1102,7 @@ fn match_settings_fast_mode() {
 
     let manifest = fs::read_to_string(&matched).unwrap();
     assert!(manifest.contains("# mode: fast\n"));
-    assert!(manifest.contains("# depth: 6\n"));
+    assert!(manifest.contains("# depth: 10\n"));
 }
 
 #[test]
@@ -1137,7 +1137,7 @@ fn match_settings_conflict_with_depth() {
 }
 
 #[test]
-fn match_settings_conflict_with_verify_contents() {
+fn match_settings_conflict_with_metadata() {
     let dir = TempDir::new().unwrap();
     let tree = create_test_tree(&dir);
     let reference = dir.path().join("reference.txt");
@@ -1159,7 +1159,7 @@ fn match_settings_conflict_with_verify_contents() {
             &tree.to_string_lossy(),
             "--match-settings",
             &reference.to_string_lossy(),
-            "-C",
+            "-M",
         ])
         .assert()
         .failure()
@@ -1251,4 +1251,135 @@ fn match_settings_prints_compare_suggestion() {
         .assert()
         .success()
         .stderr(predicate::str::contains("To compare: sumpig compare"));
+}
+
+// --- Single-path compare tests ---
+
+#[test]
+fn compare_single_dir_with_two_fingerprints() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+
+    // Create first fingerprint with a tag.
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--tag",
+            "before",
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    // Modify a file.
+    fs::write(tree.join("file_a.txt"), "modified content").unwrap();
+
+    // Create second fingerprint with a different tag.
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--tag",
+            "after",
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    // Compare using just the directory path.
+    sumpig()
+        .args(["compare", &tree.to_string_lossy()])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("!\t./file_a.txt"));
+}
+
+#[test]
+fn compare_single_dir_identical() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--tag",
+            "run1",
+            "--quiet",
+        ])
+        .assert()
+        .success();
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--tag",
+            "run2",
+            "--quiet",
+        ])
+        .assert()
+        .success();
+
+    sumpig()
+        .args(["compare", &tree.to_string_lossy()])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("identical"));
+}
+
+#[test]
+fn compare_single_dir_no_fingerprints_dir() {
+    let dir = TempDir::new().unwrap();
+    let tree = dir.path().join("empty_tree");
+    fs::create_dir(&tree).unwrap();
+
+    sumpig()
+        .args(["compare", &tree.to_string_lossy()])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(".sumpig-fingerprints"));
+}
+
+#[test]
+fn compare_single_dir_one_file() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+
+    // Default fingerprint creates exactly 1 file.
+    sumpig()
+        .args(["fingerprint", &tree.to_string_lossy(), "--quiet"])
+        .assert()
+        .success();
+
+    sumpig()
+        .args(["compare", &tree.to_string_lossy()])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("expected exactly 2 files"));
+}
+
+#[test]
+fn compare_single_dir_three_files() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+
+    for tag in ["a", "b", "c"] {
+        sumpig()
+            .args([
+                "fingerprint",
+                &tree.to_string_lossy(),
+                "--tag",
+                tag,
+                "--quiet",
+            ])
+            .assert()
+            .success();
+    }
+
+    sumpig()
+        .args(["compare", &tree.to_string_lossy()])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("expected exactly 2 files"));
 }
