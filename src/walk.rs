@@ -298,6 +298,7 @@ pub fn walk_and_hash<F>(
     root: &Path,
     options: &WalkOptions,
     verify_contents: bool,
+    hydrate: bool,
     on_file_hashed: F,
 ) -> PipelineResult
 where
@@ -448,9 +449,9 @@ where
                 while let Ok(e) = rx.recv() {
                     let full_path = root.join(&e.path);
                     let (file_hash, size) = if verify_contents {
-                        crate::hash::hash_file(&full_path)
+                        crate::hash::hash_file(&full_path, hydrate)
                     } else {
-                        crate::hash::hash_file_metadata(&full_path)
+                        crate::hash::hash_file_metadata(&full_path, hydrate)
                     };
                     bytes.fetch_add(size, Ordering::Relaxed);
                     callback(size);
@@ -961,7 +962,7 @@ mod tests {
             .iter()
             .filter(|e| !e.is_dir)
             .map(|e| {
-                let (hash, _) = crate::hash::hash_file(&dir.path().join(&e.path));
+                let (hash, _) = crate::hash::hash_file(&dir.path().join(&e.path), false);
                 let value = match hash {
                     crate::hash::FileHash::Blake3(h) => crate::hash::hash_to_hex(&h),
                     _ => panic!("expected blake3"),
@@ -976,7 +977,7 @@ mod tests {
             use_default_ignores: true,
             num_threads: 1,
         };
-        let pipeline_result = walk_and_hash(dir.path(), &pipeline_opts, true, |_| {});
+        let pipeline_result = walk_and_hash(dir.path(), &pipeline_opts, true, false, |_| {});
         let mut pipelined: Vec<(PathBuf, String)> = pipeline_result
             .hashed
             .iter()

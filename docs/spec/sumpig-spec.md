@@ -183,6 +183,11 @@ When sumpig encounters a dataless file:
   verified
 - Print a summary of dataless file count after fingerprinting
 
+The `--hydrate` flag on `fingerprint` skips dataless detection, causing the normal file read
+to trigger the cloud provider (Dropbox, iCloud) to download the file before hashing. This
+produces a real `blake3:<hash>` entry instead of `dataless:<size>`. Useful when the goal is
+to verify content matches another machine rather than just recording sync state.
+
 ## Language and crate choices: Rust
 
 ### Core dependencies

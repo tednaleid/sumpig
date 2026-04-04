@@ -27,6 +27,7 @@ The cost of undetected sync failures is high: working on corrupted repos, losing
 - [ ] `sumpig compare <file1> <file2>` reports identical trees (exit 0) or exact differences (exit 1)
 - [ ] Compare uses Merkle property to skip matching subtrees (verifiable by output structure)
 - [ ] Dataless files (iCloud-evicted, SF_DATALESS flag) recorded as `dataless:<size>` entries
+- [ ] `--hydrate` flag on fingerprint forces download of dataless files before hashing
 - [ ] Unreadable files (permission denied, I/O error) recorded as `error:<reason>` entries
 - [ ] Compare flags dataless and error entries as warnings
 - [ ] `--depth N` controls output granularity without affecting hash correctness (same root hash at any depth)

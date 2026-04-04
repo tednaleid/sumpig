@@ -72,7 +72,7 @@ fn bench_hash_file(c: &mut Criterion) {
         let file = create_temp_file(*size);
         group.throughput(Throughput::Bytes(*size as u64));
         group.bench_with_input(BenchmarkId::new("blake3", name), size, |b, _| {
-            b.iter(|| sumpig::hash::hash_file(file.path()));
+            b.iter(|| sumpig::hash::hash_file(file.path(), false));
         });
     }
     group.finish();
@@ -98,7 +98,7 @@ fn bench_hash_parallel(c: &mut Criterion) {
             b.iter(|| {
                 let _results: Vec<_> = paths
                     .par_iter()
-                    .map(|p| sumpig::hash::hash_file(p))
+                    .map(|p| sumpig::hash::hash_file(p, false))
                     .collect();
             });
         });

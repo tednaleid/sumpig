@@ -1358,7 +1358,6 @@ fn compare_single_dir_one_file() {
         .code(2)
         .stderr(predicate::str::contains("expected exactly 2 files"));
 }
-
 #[test]
 fn compare_single_dir_three_files() {
     let dir = TempDir::new().unwrap();
@@ -1382,4 +1381,27 @@ fn compare_single_dir_three_files() {
         .assert()
         .code(2)
         .stderr(predicate::str::contains("expected exactly 2 files"));
+}
+
+#[test]
+fn hydrate_flag_accepted_and_produces_content_hashes() {
+    let dir = TempDir::new().unwrap();
+    let tree = create_test_tree(&dir);
+    let output = dir.path().join("manifest.txt");
+
+    sumpig()
+        .args([
+            "fingerprint",
+            &tree.to_string_lossy(),
+            "--hydrate",
+            "--output",
+            &output.to_string_lossy(),
+        ])
+        .assert()
+        .success();
+
+    let contents = fs::read_to_string(&output).unwrap();
+    // All files should be blake3 (no dataless entries in a temp dir).
+    assert!(!contents.contains("dataless:"));
+    assert!(contents.contains("blake3:"));
 }

@@ -54,6 +54,10 @@ enum Commands {
         /// Use settings (depth, mode) from an existing manifest file
         #[arg(short = 'm', long, conflicts_with_all = ["depth", "metadata"])]
         match_settings: Option<PathBuf>,
+
+        /// Force-download cloud-only (dataless) files before hashing
+        #[arg(long)]
+        hydrate: bool,
     },
     /// Compare two fingerprint manifests and report differences
     #[command(after_long_help = "\
@@ -97,6 +101,7 @@ fn main() {
             metadata,
             tag,
             match_settings,
+            hydrate,
         } => {
             if let Err(e) = run_fingerprint(&FingerprintOptions {
                 path: &path,
@@ -108,6 +113,7 @@ fn main() {
                 metadata,
                 tag: tag.as_deref(),
                 match_settings: match_settings.as_deref(),
+                hydrate,
             }) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
@@ -233,6 +239,7 @@ struct FingerprintOptions<'a> {
     metadata: bool,
     tag: Option<&'a str>,
     match_settings: Option<&'a std::path::Path>,
+    hydrate: bool,
 }
 
 fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::Error>> {
@@ -284,12 +291,17 @@ fn run_fingerprint(opts: &FingerprintOptions) -> Result<(), Box<dyn std::error::
         num_threads: opts.jobs.unwrap_or(0),
     };
     let pb_clone = pb.clone();
-    let pipeline =
-        sumpig::walk::walk_and_hash(&canonical, &walk_options, !metadata, move |_size| {
+    let pipeline = sumpig::walk::walk_and_hash(
+        &canonical,
+        &walk_options,
+        !metadata,
+        opts.hydrate,
+        move |_size| {
             if let Some(ref pb) = pb_clone {
                 pb.inc(1);
             }
-        });
+        },
+    );
 
     if let Some(pb) = &pb {
         pb.finish_and_clear();
