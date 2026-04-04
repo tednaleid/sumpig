@@ -22,6 +22,8 @@ pub enum FileHash {
 /// Returns (FileHash, file_size_bytes). Size is 0 for symlinks and errors.
 /// When `hydrate` is true, skip dataless detection so the read triggers a download.
 pub fn hash_file(path: &Path, hydrate: bool) -> (FileHash, u64) {
+    let _ = hydrate; // Used only on macOS (dataless detection).
+
     // Use symlink_metadata (lstat) to check symlink status without following.
     let metadata = match fs::symlink_metadata(path) {
         Ok(m) => m,
@@ -99,6 +101,8 @@ fn hash_file_contents(path: &Path) -> std::io::Result<[u8; 32]> {
 /// Returns (FileHash, file_size_bytes). Size is 0 for symlinks and errors.
 /// When `hydrate` is true, skip dataless detection so the read triggers a download.
 pub fn hash_file_metadata(path: &Path, hydrate: bool) -> (FileHash, u64) {
+    let _ = hydrate; // Used only on macOS (dataless detection).
+
     let metadata = match fs::symlink_metadata(path) {
         Ok(m) => m,
         Err(e) => return (FileHash::Error(e.to_string()), 0),
