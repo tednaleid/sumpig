@@ -1,0 +1,103 @@
+# veer rules - evaluated in order, first match wins.
+# Run 'veer list' to see active rules, 'veer test "<cmd>"' to preview behavior.
+# See .claude/skills/veer/SKILL.md for a guide on adding rules.
+
+[[rule]]
+id = "no-curl-pipe-shell"
+name = "Block curl piped to a shell"
+action = "reject"
+message = "Don't pipe curl to bash/sh -- download, inspect, then execute."
+[rule.match]
+command_all = ["curl", "bash"]
+
+# --- cargo -> just redirects (most specific first) ---
+
+[[rule]]
+id = "cargo-fmt-check"
+name = "Redirect cargo fmt --check to just fmt-check"
+action = "reject"
+message = "Use `just fmt-check` to check formatting."
+[rule.match]
+command = "cargo"
+arg = "fmt"
+flag = "check"
+
+[[rule]]
+id = "cargo-fmt"
+name = "Redirect cargo fmt to just fmt"
+action = "reject"
+message = "Use `just fmt` to format code."
+[rule.match]
+command = "cargo"
+arg = "fmt"
+
+[[rule]]
+id = "cargo-clippy"
+name = "Redirect cargo clippy to just lint"
+action = "reject"
+message = "Use `just lint` to run clippy lints."
+[rule.match]
+command = "cargo"
+arg = "clippy"
+
+[[rule]]
+id = "cargo-clean"
+name = "Redirect cargo clean to just clean"
+action = "reject"
+message = "Use `just clean` to remove build artifacts."
+[rule.match]
+command = "cargo"
+arg = "clean"
+
+[[rule]]
+id = "cargo-test"
+name = "Redirect cargo test to just test"
+action = "reject"
+message = "Use `just test` to run all tests or `just test-one NAME` for a specific test."
+[rule.match]
+command = "cargo"
+arg = "test"
+
+[[rule]]
+id = "cargo-bench"
+name = "Redirect cargo bench to just bench"
+action = "reject"
+message = "Use `just bench` or `just bench ARGS` to run benchmarks."
+[rule.match]
+command = "cargo"
+arg = "bench"
+
+[[rule]]
+id = "cargo-build"
+name = "Redirect cargo build to just build"
+action = "reject"
+message = "Use `just build` for a release build."
+[rule.match]
+command = "cargo"
+arg = "build"
+
+[[rule]]
+id = "cargo-run"
+name = "Redirect cargo run to just run"
+action = "reject"
+message = "Use `just run ARGS` to build and run with arguments."
+[rule.match]
+command = "cargo"
+arg = "run"
+
+[[rule]]
+id = "cargo-install"
+name = "Redirect cargo install to just install"
+action = "reject"
+message = "Use `just install` to install the release binary."
+[rule.match]
+command = "cargo"
+arg = "install"
+
+[[rule]]
+id = "cargo-catchall"
+name = "Block direct cargo invocation"
+action = "reject"
+message = "Run cargo commands through the justfile. See `just --list` for available targets."
+[rule.match]
+command = "cargo"
