@@ -1,0 +1,4 @@
+# ABOUTME: Cargo settings for this repo.
+# ABOUTME: Holds back crate versions published less than 7 days ago, as a supply-chain guard.
+[registry]
+global-min-publish-age = "7 days"
